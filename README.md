@@ -103,3 +103,7 @@ uv run ruff check .
 # 型チェック
 uv run basedpyright
 ```
+
+## 📄 ライセンス (License)
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](./LICENSE) file for details.
