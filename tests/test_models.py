@@ -1,118 +1,161 @@
-"""SubtitleSegment データモデルの単体テスト。"""
+"""音声認識・ストリーミング連携用データモデルの単体テスト。"""
 
-from audio_transcriber.models import SubtitleSegment
-
-
-def test_subtitle_segment_init() -> None:
-    """SubtitleSegment の基本属性の初期化を検証します。"""
-    # Arrange & Act
-    seg = SubtitleSegment(start=1.234, end=5.678, text="こんにちは")
-
-    # Assert
-    assert seg.start == 1.234
-    assert seg.end == 5.678
-    assert seg.text == "こんにちは"
+from audio_transcriber.models import RecognizedSegment, SoundEvent, VadState
 
 
-def test_subtitle_segment_equality() -> None:
-    """SubtitleSegment の同値性判定を検証します。"""
-    # Arrange
-    seg1 = SubtitleSegment(start=1.0, end=2.0, text="テスト")
-    seg2 = SubtitleSegment(start=1.0, end=2.0, text="テスト")
-    seg3 = SubtitleSegment(start=1.0, end=2.0, text="別テキスト")
-    seg4 = SubtitleSegment(start=1.5, end=2.0, text="テスト")
+class TestVadState:
+    """VadState 列挙型のテスト。"""
 
-    # Act & Assert
-    assert seg1 == seg2
-    assert seg1 != seg3
-    assert seg1 != seg4
+    def test_vad_state_values(self) -> None:
+        """各ステータス値が正しく定義されていることを確認します。"""
+        # Arrange & Act & Assert
+        assert VadState.SILENCE.value == "silence"
+        assert VadState.SPEECH_START.value == "speech_start"
+        assert VadState.SPEECH.value == "speech"
+        assert VadState.SPEECH_END.value == "speech_end"
 
 
-def test_subtitle_segment_to_dict() -> None:
-    """SubtitleSegment の to_dict による辞書変換を検証します。"""
-    # Arrange
-    seg = SubtitleSegment(start=1.5, end=4.0, text="こんにちは")
+class TestRecognizedSegment:
+    """RecognizedSegment データクラスのテスト。"""
 
-    # Act
-    d = seg.to_dict()
+    def test_create_and_defaults(self) -> None:
+        """インスタンス化とデフォルト値の設定を検証します。"""
+        # Arrange & Act
+        seg = RecognizedSegment(start=1.0, end=2.5, text="テスト発話")
 
-    # Assert
-    assert d == {"start": 1.5, "end": 4.0, "text": "こんにちは"}
+        # Assert
+        assert seg.start == 1.0
+        assert seg.end == 2.5
+        assert seg.text == "テスト発話"
+        assert seg.confidence == 0.0
+        assert seg.speaker_id is None
+        assert seg.words is None
+
+    def test_to_dict(self) -> None:
+        """辞書形式への変換を検証します。"""
+        # Arrange
+        seg = RecognizedSegment(
+            start=0.5,
+            end=3.0,
+            text="こんにちは",
+            confidence=0.95,
+            speaker_id="spk_0",
+            words=[{"word": "こんにちは", "start": 0.5, "end": 3.0}],
+        )
+
+        # Act
+        data = seg.to_dict()
+
+        # Assert
+        assert data["start"] == 0.5
+        assert data["end"] == 3.0
+        assert data["text"] == "こんにちは"
+        assert data["confidence"] == 0.95
+        assert data["speaker_id"] == "spk_0"
+        assert data["words"] == [{"word": "こんにちは", "start": 0.5, "end": 3.0}]
+
+    def test_from_dict_with_full_fields(self) -> None:
+        """完全な辞書データからの復元を検証します。"""
+        # Arrange
+        data: dict[str, object] = {
+            "start": 1.2,
+            "end": 4.5,
+            "text": "おはようございます",
+            "confidence": 0.88,
+            "speaker_id": "spk_1",
+            "words": [{"word": "おはよう", "start": 1.2, "end": 3.0}],
+        }
+
+        # Act
+        seg = RecognizedSegment.from_dict(data)
+
+        # Assert
+        assert seg.start == 1.2
+        assert seg.end == 4.5
+        assert seg.text == "おはようございます"
+        assert seg.confidence == 0.88
+        assert seg.speaker_id == "spk_1"
+        assert seg.words == [{"word": "おはよう", "start": 1.2, "end": 3.0}]
+
+    def test_from_dict_with_missing_fields(self) -> None:
+        """欠損フィールドを含む辞書からの復元を検証します。"""
+        # Arrange
+        data: dict[str, object] = {"text": "一部のみ"}
+
+        # Act
+        seg = RecognizedSegment.from_dict(data)
+
+        # Assert
+        assert seg.start == 0.0
+        assert seg.end == 0.0
+        assert seg.text == "一部のみ"
+        assert seg.confidence == 0.0
+        assert seg.speaker_id is None
+        assert seg.words is None
 
 
-def test_subtitle_segment_from_dict_standard() -> None:
-    """from_dict による標準的な辞書からの復元を検証します。"""
-    # Arrange
-    data = {"start": 2.5, "end": 6.0, "text": "標準テスト"}
+class TestSoundEvent:
+    """SoundEvent データクラスのテスト。"""
 
-    # Act
-    seg = SubtitleSegment.from_dict(data)
+    def test_create_and_defaults(self) -> None:
+        """インスタンス化とデフォルト値の設定を検証します。"""
+        # Arrange & Act
+        event = SoundEvent(event_type="peak_energy", timestamp=10.5)
 
-    # Assert
-    assert seg.start == 2.5
-    assert seg.end == 6.0
-    assert seg.text == "標準テスト"
+        # Assert
+        assert event.event_type == "peak_energy"
+        assert event.timestamp == 10.5
+        assert event.score == 1.0
+        assert event.metadata is None
 
+    def test_to_dict(self) -> None:
+        """辞書形式への変換を検証します。"""
+        # Arrange
+        event = SoundEvent(
+            event_type="laughter",
+            timestamp=12.3,
+            score=0.85,
+            metadata={"source": "mic"},
+        )
 
-def test_subtitle_segment_from_dict_type_coercion() -> None:
-    """from_dict における数値・文字列の型強制変換を検証します。"""
-    # Arrange
-    raw_data = {"start": 1, "end": "3.5", "text": 12345}
+        # Act
+        data = event.to_dict()
 
-    # Act
-    seg = SubtitleSegment.from_dict(raw_data)  # pyright: ignore[reportArgumentType]
+        # Assert
+        assert data["event_type"] == "laughter"
+        assert data["timestamp"] == 12.3
+        assert data["score"] == 0.85
+        assert data["metadata"] == {"source": "mic"}
 
-    # Assert
-    assert isinstance(seg.start, float)
-    assert seg.start == 1.0
-    assert isinstance(seg.end, float)
-    assert seg.end == 3.5
-    assert isinstance(seg.text, str)
-    assert seg.text == "12345"
+    def test_from_dict_with_full_fields(self) -> None:
+        """完全な辞書データからの復元を検証します。"""
+        # Arrange
+        data: dict[str, object] = {
+            "event_type": "cheer",
+            "timestamp": 5.0,
+            "score": 0.9,
+            "metadata": {"volume": 0.8},
+        }
 
+        # Act
+        event = SoundEvent.from_dict(data)
 
-def test_subtitle_segment_from_dict_defaults() -> None:
-    """from_dict におけるキー欠損時のデフォルトフォールバックを検証します。"""
-    # Arrange
-    empty_dict: dict[str, object] = {}
-    partial_dict: dict[str, object] = {"text": "部分データ"}
+        # Assert
+        assert event.event_type == "cheer"
+        assert event.timestamp == 5.0
+        assert event.score == 0.9
+        assert event.metadata == {"volume": 0.8}
 
-    # Act
-    seg_empty = SubtitleSegment.from_dict(empty_dict)
-    seg_partial = SubtitleSegment.from_dict(partial_dict)
+    def test_from_dict_with_missing_fields(self) -> None:
+        """欠損フィールドを含む辞書からの復元を検証します。"""
+        # Arrange
+        data: dict[str, object] = {}
 
-    # Assert
-    assert seg_empty.start == 0.0
-    assert seg_empty.end == 0.0
-    assert seg_empty.text == ""
+        # Act
+        event = SoundEvent.from_dict(data)
 
-    assert seg_partial.start == 0.0
-    assert seg_partial.end == 0.0
-    assert seg_partial.text == "部分データ"
-
-
-def test_subtitle_segment_roundtrip() -> None:
-    """to_dict と from_dict の相互変換 (ラウンドトリップ) を検証します。"""
-    # Arrange
-    original = SubtitleSegment(start=10.123, end=20.456, text="ラウンドトリップテスト")
-
-    # Act
-    reconstructed = SubtitleSegment.from_dict(original.to_dict())
-
-    # Assert
-    assert reconstructed == original
-
-
-def test_subtitle_segment_unicode_and_special_chars() -> None:
-    """絵文字や改行、特殊文字を含むテキストの保持を検証します。"""
-    # Arrange
-    special_text = '🎉 特殊文字\n2行目 "ダブルクォート" & <tag>'
-    seg = SubtitleSegment(start=0.0, end=1.0, text=special_text)
-
-    # Act
-    d = seg.to_dict()
-    reconstructed = SubtitleSegment.from_dict(d)
-
-    # Assert
-    assert seg.text == special_text
-    assert reconstructed.text == special_text
+        # Assert
+        assert event.event_type == "unknown"
+        assert event.timestamp == 0.0
+        assert event.score == 0.0
+        assert event.metadata is None
