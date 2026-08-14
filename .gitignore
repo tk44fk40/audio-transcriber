@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checking & Linter
+.mypy_cache/
+.pyright/
+.ruff_cache/
+
+# Audio / Video / Output data
+output/
+target_out/
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.srt
+*.vtt
+*.mp4
+*.mkv
+*.mov
+*.avi
+
+# Local config
+config.toml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+

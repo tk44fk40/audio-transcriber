@@ -1,0 +1,77 @@
+# テスト方針とカバレッジ管理ナレッジ (Testing & Coverage Guidelines)
+
+本ドキュメントは、`audio-transcriber` プロジェクトにおけるテスト設計方針、モック活用指針、および未カバー箇所の許容／禁止基準（カバレッジ品質ナレッジ）をまとめたものです。
+
+---
+
+## 1. カバレッジ設計の基本方針
+
+本プロジェクトは **「見かけのカバレッジではなく、バグ検出力と堅牢性を保証する実効的テスト」** を最重視します。
+
+1. **実モデル・外部コマンド依存の分離**:
+   - 重い AI/ML モデル（`DeepFilterNet`, `faster-whisper`）のロードや GPU 推論、外部 CLI（`ffmpeg`, `ffprobe`）の全実行を単体テストで直接行うと、実行時間肥大化や環境依存の原因となります。
+   - モデルや CLI の「呼び出し部分」「パラメータ受け渡し」「返り値のデータ変換」「I/O 処理」は、`unittest.mock` を用いて決定論的かつ高速（ミリ秒単位）に検証します。
+2. **異常系・エラーハンドリングの網羅**:
+   - CLI ツールやメディア変換基盤において、外部コマンドの失敗や不正入力時のハンドリング（`CalledProcessError` ➔ `RuntimeError` の再送出、終了コード制御）はシステムの可用性の要です。これらをテストスキップすることは厳禁とします。
+
+---
+
+## 2. 未カバー許容基準 vs 禁止基準
+
+テストカバレッジを測定・維持するにあたり、以下の基準を厳格に適用します。
+
+### A. カバレッジ除外（未カバー）にしてよい正当な事例
+以下のケースはテストコードから無理に到達させる価値が低く、`pyproject.toml` の `[tool.coverage.report] exclude_lines` による明示的な除外対象とします。
+
+1. **エントリポイントガード**:
+   - `if __name__ == "__main__":`
+2. **型チェック専用ブロック**:
+   - `if TYPE_CHECKING:`
+3. **抽象メソッド・Protocol スタブ**:
+   - `...` や `raise NotImplementedError` のみのシグネチャ定義
+4. **到達不能コード（ディフェンシブガード）**:
+   - プラットフォーム固有（OS 別シグナル等）で現在の環境では原理的に到達しない節（※ただし可能な限りモック化を検討）
+
+### B. 「未カバー」の言い訳にしてはならない禁止事例（テスト必須）
+以下のケースを「外部依存だから」「重いから」という理由で未カバーのまま放置することは禁止します。
+
+1. **外部 CLI（ffmpeg / ffprobe 等）の呼び出し・異常系**:
+   - `subprocess.run` をモック化し、`CalledProcessError` 発生時のエラーログ・例外ラッピング・メッセージ整形を必ずテストする。
+2. **具象プロバイダ実装（Whisper, DeepFilterNet 等）**:
+   - モデルインスタンスをモック化し、渡されるハイパーパラメータ、テンソル/音声の保存フロー、SRT やセグメント辞書への変換ロジックを必ずテストする。
+3. **互換レイヤー（Shim / Compat）のフォールバック**:
+   - ライブラリ不在（`ImportError`）や属性不在時の例外補足と代替初期化を `sys.modules` やモックでテストする。
+4. **CLI の中断・異常系**:
+   - `KeyboardInterrupt` やサブコマンド失敗時に適切な終了コードとメッセージが出力されることをテストする。
+5. **バリデーション・ガード節**:
+   - 境界値（0 や 最大値超過）の引数が渡された際の `ValueError` 送出をテストする。
+
+---
+
+## 3. 過去の未カバー箇所の辛口評価と対策履歴 (2026-08-15)
+
+| 対象モジュール | 未カバーだった行 | 当初の理由 | 評価判定 | 対策内容 |
+|---|---|---|---|---|
+| `cli.py` | 162-164 | パイプライン例外処理 | **重大な漏れ** | `run_pipeline` の例外送出をモックし、exit code 1 とエラー出力を検証 (`test_cli.py`) |
+| `cli.py` | 184 | `if __name__ == '__main__':` | **除外妥当** | `pyproject.toml` の `exclude_lines` に設定 |
+| `compat.py` | 36-37 | `torchaudio` 未検出時 `pass` | **検証不足** | `patch.dict(sys.modules, {"torchaudio": None})` によるフォールバックテスト作成 (`test_compat.py`) |
+| `denoise.py` | 34-47 | DeepFilterNet 実処理本体 | **重大な漏れ** | `df.enhance` / `init_df` / `load_audio` / `save_audio` をモック化し、内部 I/O と呼び出しを完全網羅 (`test_denoise.py`) |
+| `media.py` | 67-69, 143-145, 213-215 | ffmpeg/ffprobe 失敗ハンドリング | **甘え** | `subprocess.CalledProcessError` をモックして `RuntimeError` 再送出を検証 (`test_media.py`) |
+| `media.py` | 178 | remux 時のトラック番号境界チェック | **片落ち** | 無効トラック番号（0, 上限超過）テストを追加 (`test_media.py`) |
+| `transcribe.py` | 63-92 | WhisperModel 実処理本体 | **重大な漏れ** | `WhisperModel` をモック化し、パラメータ伝達・SRT 保存・辞書変換を完全検証 (`test_transcribe.py`) |
+
+---
+
+## 4. テスト実行・カバレッジ検証コマンド
+
+```bash
+# 全体テスト & カバレッジレポート（未カバー行表示）
+uv run pytest --cov=audio_transcriber --cov-report=term-missing
+
+# 型チェック（エラー 0 件必須）
+uv run basedpyright
+
+# リント・フォーマットチェック
+uv run ruff check .
+uv run ruff format --check .
+```

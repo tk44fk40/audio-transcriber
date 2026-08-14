@@ -1,0 +1,97 @@
+[project]
+name = "audio-transcriber"
+version = "0.1.0"
+description = "Microphone audio denoiser and subtitle generator for DaVinci Resolve"
+readme = "README.md"
+authors = [
+    { name = "T.Fukushima", email = "tk44fk40@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "faster-whisper>=1.2.1",
+    "rich>=13.7.0",
+    "torch>=2.2.0",
+    "torchaudio>=2.2.0",
+    "typer>=0.27.1",
+]
+
+[tool.uv]
+override-dependencies = [
+    "torch>=2.2.0",
+    "torchaudio>=2.2.0",
+]
+
+[project.scripts]
+audio-transcriber = "audio_transcriber.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.11.32,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.39.10",
+    "pre-commit>=4.6.2",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.3",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+exclude = [".agents"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # Pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "D",    # pydocstyle
+    "RUF",  # Ruff-specific rules
+]
+ignore = [
+    "E501", # 行長オーバーは ruff format に任せる
+    "D415", # Docstring 末尾ピリオド無効化 (日本語対応)
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# 全角文字対応 (日本語コメント・文字列・Docstring)
+"src/*" = ["RUF001", "RUF002", "RUF003"]
+# テストコードは Docstring ルール全般および全角文字警告を免除
+"tests/*" = ["D", "RUF001", "RUF002", "RUF003"]
+"__init__.py" = ["D104"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.basedpyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+include = ["src", "tests"]
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "e2e: End-to-end integration tests",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    'if __name__ == "__main__":',
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    '^\\s*\\.\\.\\.\\s*$',
+]
+
