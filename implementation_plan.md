@@ -4,14 +4,13 @@
 - **参照元 要件仕様書**: [`lumi_companion/docs/AUDIO_LIBRARY_REQUIREMENTS.md`](file:///home/tk44/ghq/github.com/tk44fk40/lumi_companion/docs/AUDIO_LIBRARY_REQUIREMENTS.md)
 - **詳細設計書**: [`docs/streaming_integration_plan.md`](docs/streaming_integration_plan.md)
 
-上記要求仕様に準拠し、`audio-transcriber` をリアルタイムストリーミング対応の音声処理ライブラリとして拡張する。
-
 ## 2. 実装計画
 
 ### Phase 1: モデル常駐型 VAD+Whisper コア ＆ 共通データモデル (完了 - Issue #1)
 - [x] `src/audio_transcriber/models.py` に `RecognizedSegment`, `VadState`, `SoundEvent` を定義
 - [x] `src/audio_transcriber/stt.py` (`SpeechTranscriber`, `TranscriberProtocol`, `WhisperModelProtocol`) を実装（DI・波形/ファイル推論・ライフサイクル管理）
-- [x] `tests/test_models.py`, `tests/test_stt.py` で単体テスト作成・検証（235件合格、98%カバレッジ）
+- [x] `tests/test_models.py`, `tests/test_stt.py` で単体テスト作成・検証（243件合格、98%カバレッジ）
+- [x] CLI のリアルタイム進捗 ＆ 発話ストリーミング表示対応 (`on_progress`, `on_segment`)
 
 ### Phase 2: ストリーミング統合パイプライン ＆ 非同期コールバック
 - [ ] `src/audio_transcriber/callbacks.py` (`PipelineCallbacks`, `BasePipelineCallbacks`) を定義

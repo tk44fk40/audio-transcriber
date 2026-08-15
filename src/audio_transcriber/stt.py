@@ -4,15 +4,20 @@
 低遅延な音声認識処理とライフサイクル管理を提供する SpeechTranscriber クラスを定義します。
 """
 
+from __future__ import annotations
+
 import gc
-from collections.abc import Iterable
+import logging
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any, BinaryIO, Protocol, Self, runtime_checkable
+from typing import Any, BinaryIO, Protocol, runtime_checkable
 
 import numpy as np
 from faster_whisper import WhisperModel
 
-from audio_transcriber.models import RecognizedSegment
+import audio_transcriber.compat  # noqa: F401
+
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -30,244 +35,180 @@ class WhisperModelProtocol(Protocol):
         vad_parameters: Any = ...,
         initial_prompt: str | Iterable[int] | None = ...,
         condition_on_previous_text: bool = ...,
+        word_timestamps: bool = ...,
+        no_speech_threshold: float = ...,
     ) -> tuple[Iterable[Any], Any]:
-        """音声推論を実行します。
-
-        Args:
-            audio: 音声ファイルパス、バイナリストリーム、または波形データ配列。
-            language: 言語コード。
-            task: タスク名。
-            beam_size: ビーム探索幅。
-            vad_filter: VAD フィルタ有効化。
-            vad_parameters: VAD パラメータ。
-            initial_prompt: 初期プロンプト。
-            condition_on_previous_text: 前後コンテキスト考慮。
-
-        Returns:
-            tuple[Iterable[Any], Any]: セグメント反復子と推論メタ情報。
-        """
+        """音声推論を実行します。"""
         ...
 
 
 @runtime_checkable
-class TranscriberProtocol(Protocol):
-    """音声認識プロバイダーの共通インターフェース Protocol。"""
-
-    def transcribe_waveform(
-        self,
-        waveform: np.ndarray,
-        sample_rate: int = 16000,
-    ) -> list[RecognizedSegment]:
-        """波形データから認識を実行します。
-
-        Args:
-            waveform (np.ndarray): 音声波形データ。
-            sample_rate (int): サンプリングレート (Hz)。
-
-        Returns:
-            list[RecognizedSegment]: 認識結果セグメントのリスト。
-        """
-        ...
+class TranscriberProvider(Protocol):
+    """音声文字起こしプロバイダーの共通インターフェース Protocol。"""
 
     def transcribe_file(
         self,
         file_path: Path | str,
-    ) -> list[RecognizedSegment]:
-        """音声ファイルから認識を実行します。
-
-        Args:
-            file_path (Path | str): 音声ファイルのパス。
-
-        Returns:
-            list[RecognizedSegment]: 認識結果セグメントのリスト。
-        """
-        ...
-
-    def unload(self) -> None:
-        """リソースを解放します。"""
-        ...
-
-    def close(self) -> None:
-        """インスタンスをクローズしてリソースを解放します。"""
+        on_segment: Callable[[dict[str, Any]], None] | None = None,
+        on_progress: Callable[[str, str], None] | None = None,
+    ) -> list[dict[str, Any]]:
+        """音声ファイルパスから文字起こしを実行し、セグメント辞書のリストを返します。"""
         ...
 
 
-class SpeechTranscriber:
-    """Faster-Whisper モデル常駐型の音声認識コアクラス（TranscriberProtocol 準拠）。"""
+class VadProgressHandler(logging.Handler):
+    """Faster-Whisper の内部ロガーから VAD チャンク出力を横取りして通知するハンドラ"""
+
+    def __init__(self, on_progress: Callable[[str, str], None] | None):
+        """初期化します。"""
+        super().__init__()
+        self.on_progress = on_progress
+        self.setLevel(logging.DEBUG)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """ログレコードを受け取り、VAD出力があればコールバックに送ります。"""
+        if not self.on_progress:
+            return
+        msg = record.getMessage()
+        if "VAD filter kept the following audio segments:" in msg:
+            chunks_str = msg.replace(
+                "VAD filter kept the following audio segments:", ""
+            ).strip()
+
+            segments = chunks_str.split(", ")
+            formatted_chunks = []
+            for i in range(0, len(segments), 5):
+                formatted_chunks.append(", ".join(segments[i : i + 5]))
+
+            formatted_str = "\n  ".join(formatted_chunks)
+            self.on_progress("vad", f"発話区間検出 (VAD):\n  {formatted_str}")
+
+
+class FasterWhisperProvider:
+    """Faster-Whisper をバックエンドとする音声認識プロバイダー。"""
 
     def __init__(
         self,
-        model_name: str = "large-v3",
-        device: str = "auto",
-        compute_type: str = "default",
-        vad_filter: bool = True,
-        beam_size: int = 5,
+        model_size: str = "small",
+        device: str = "cuda",
+        compute_type: str = "float16",
         language: str = "ja",
-        condition_on_previous_text: bool = False,
         initial_prompt: str | None = None,
-        vad_parameters: dict[str, object] | None = None,
+        vad_filter: bool = True,
+        vad_parameters: dict[str, Any] | None = None,
+        beam_size: int = 5,
+        condition_on_previous_text: bool = True,
+        no_speech_threshold: float = 0.6,
         model: WhisperModelProtocol | None = None,
     ) -> None:
-        """Faster-Whisper モデルを初期化または注入します。
-
-        Args:
-            model_name (str): Whisper モデル名。
-            device (str): 実行デバイス ("cuda", "cpu", "auto")。
-            compute_type (str): 量子化/精度 ("float16", "int8", 等)。
-            vad_filter (bool): Silero-VAD 有効化。
-            beam_size (int): ビーム探索サイズ。
-            language (str): 認識対象言語コード。
-            condition_on_previous_text (bool): 前後コンテキスト考慮。
-            initial_prompt (str | None): 初期プロンプト。
-            vad_parameters (dict[str, object] | None): VAD パラメータ。
-            model (WhisperModelProtocol | None): 外部注入する Whisper モデルインスタンス。
-        """
-        self.model_name = model_name
+        """プロバイダーを初期化します。"""
+        self.model_size = model_size
         self.device = device
-        self.compute_type = compute_type
-        self.vad_filter = vad_filter
-        self.beam_size = beam_size
+        resolved_compute = compute_type
+        if device.lower() == "cpu" and compute_type.lower() in (
+            "float16",
+            "int8_float16",
+        ):
+            logger.info(
+                "CPU デバイスでは %s が非サポートのため、compute_type を 'int8' に自動変更しました。",
+                compute_type,
+            )
+            resolved_compute = "int8"
+
+        self.compute_type = resolved_compute
         self.language = language
-        self.condition_on_previous_text = condition_on_previous_text
         self.initial_prompt = initial_prompt
+        self.vad_filter = vad_filter
         self.vad_parameters = vad_parameters
+        self.beam_size = beam_size
+        self.condition_on_previous_text = condition_on_previous_text
+        self.no_speech_threshold = no_speech_threshold
 
         if model is not None:
             self._model: WhisperModelProtocol | None = model
         else:
             self._model = WhisperModel(
-                model_name,
-                device=device,
-                compute_type=compute_type,
+                model_size, device=device, compute_type=resolved_compute
             )
 
-    def transcribe_waveform(
-        self,
-        waveform: np.ndarray,
-        sample_rate: int = 16000,
-    ) -> list[RecognizedSegment]:
-        """メモリ上の音声波形（16kHz Float32）から文字起こしを実行します。
-
-        Args:
-            waveform (np.ndarray): 音声波形データ（1D float32 配列）。
-            sample_rate (int): サンプリングレート (Hz, デフォルト 16000)。
-
-        Returns:
-            list[RecognizedSegment]: 認識結果セグメントのリスト。
-
-        Raises:
-            ValueError: 波形データが無効または空の場合。
-            RuntimeError: モデルがロードされていない場合。
-        """
-        if waveform.size == 0:
-            raise ValueError("波形データが空です")
-
-        if self._model is None:
-            raise RuntimeError("モデルがロードされていません")
-
-        # faster-whisper は float32 の波形 (16kHz) を直接受け入れ可能
-        audio_input = (
-            waveform.astype(np.float32) if waveform.dtype != np.float32 else waveform
-        )
-
+    def _build_kwargs(self) -> dict[str, Any]:
+        """推論用キーワード引数を生成します。"""
         kwargs: dict[str, Any] = {
-            "beam_size": self.beam_size,
             "language": self.language,
             "vad_filter": self.vad_filter,
+            "word_timestamps": True,
+            "beam_size": self.beam_size,
             "condition_on_previous_text": self.condition_on_previous_text,
+            "no_speech_threshold": self.no_speech_threshold,
         }
         if self.initial_prompt is not None:
             kwargs["initial_prompt"] = self.initial_prompt
         if self.vad_parameters is not None:
             kwargs["vad_parameters"] = self.vad_parameters
-
-        segments_iter, _ = self._model.transcribe(audio_input, **kwargs)
-        return self._format_segments(segments_iter)
+        return kwargs
 
     def transcribe_file(
         self,
         file_path: Path | str,
-    ) -> list[RecognizedSegment]:
-        """音声ファイルパスから文字起こしを実行します。
-
-        Args:
-            file_path (Path | str): 音声ファイルのパス。
-
-        Returns:
-            list[RecognizedSegment]: 認識結果セグメントのリスト。
-
-        Raises:
-            FileNotFoundError: 音声ファイルが存在しない場合。
-            RuntimeError: モデルがロードされていない場合。
-        """
+        on_segment: Callable[[dict[str, Any]], None] | None = None,
+        on_progress: Callable[[str, str], None] | None = None,
+    ) -> list[dict[str, Any]]:
+        """音声ファイルパスから文字起こしを実行し、セグメント辞書のリストを返します。"""
         path = Path(file_path)
         if not path.is_file():
             raise FileNotFoundError(f"音声ファイルが見つかりません: {path}")
-
         if self._model is None:
             raise RuntimeError("モデルがロードされていません")
 
-        kwargs: dict[str, Any] = {
-            "beam_size": self.beam_size,
-            "language": self.language,
-            "vad_filter": self.vad_filter,
-            "condition_on_previous_text": self.condition_on_previous_text,
-        }
-        if self.initial_prompt is not None:
-            kwargs["initial_prompt"] = self.initial_prompt
-        if self.vad_parameters is not None:
-            kwargs["vad_parameters"] = self.vad_parameters
+        # VADログフックの準備
+        fw_logger = logging.getLogger("faster_whisper")
+        vad_handler = None
+        if on_progress and self.vad_filter:
+            fw_logger.setLevel(logging.DEBUG)
+            vad_handler = VadProgressHandler(on_progress)
+            fw_logger.addHandler(vad_handler)
 
-        segments_iter, _ = self._model.transcribe(str(path), **kwargs)
-        return self._format_segments(segments_iter)
-
-    def _format_segments(self, segments_iter: Iterable[Any]) -> list[RecognizedSegment]:
-        """推論結果のセグメント反復子を RecognizedSegment リストへ整形します。
-
-        Args:
-            segments_iter (Iterable[Any]): faster-whisper のセグメント反復子。
-
-        Returns:
-            list[RecognizedSegment]: 整形後の認識セグメントリスト。
-        """
-        results: list[RecognizedSegment] = []
-        for s in segments_iter:
-            text = getattr(s, "text", "").strip()
-            if not text:
-                continue
-
-            start = float(getattr(s, "start", 0.0))
-            end = float(getattr(s, "end", 0.0))
-            avg_logprob = float(getattr(s, "avg_logprob", 0.0))
-            # 対数確率 (<= 0.0) を [0.0, 1.0] 近似に変換 (np.exp)
-            confidence = float(np.clip(np.exp(avg_logprob), 0.0, 1.0))
-
-            words_data: list[dict[str, object]] | None = None
-            raw_words = getattr(s, "words", None)
-            if raw_words is not None:
-                words_data = [
-                    {
-                        "word": getattr(w, "word", ""),
-                        "start": float(getattr(w, "start", 0.0)),
-                        "end": float(getattr(w, "end", 0.0)),
-                        "probability": float(getattr(w, "probability", 0.0)),
-                    }
-                    for w in raw_words
-                ]
-
-            results.append(
-                RecognizedSegment(
-                    start=start,
-                    end=end,
-                    text=text,
-                    confidence=confidence,
-                    words=words_data,
-                )
+        try:
+            segments_gen, _info = self._model.transcribe(
+                str(path), **self._build_kwargs()
             )
-        return results
+
+            segment_dicts: list[dict[str, Any]] = []
+            for i, s in enumerate(segments_gen, start=1):
+                words_list = []
+                words_attr = getattr(s, "words", None)
+                if words_attr is not None:
+                    for w in words_attr:
+                        words_list.append(
+                            {
+                                "start": float(getattr(w, "start", 0.0)),
+                                "end": float(getattr(w, "end", 0.0)),
+                                "word": getattr(w, "word", ""),
+                                "probability": float(getattr(w, "probability", 0.0)),
+                            }
+                        )
+
+                seg_dict = {
+                    "id": getattr(s, "id", i),
+                    "start": float(getattr(s, "start", 0.0)),
+                    "end": float(getattr(s, "end", 0.0)),
+                    "text": getattr(s, "text", "").strip(),
+                    "no_speech_prob": float(getattr(s, "no_speech_prob", 0.0)),
+                    "compression_ratio": float(getattr(s, "compression_ratio", 0.0)),
+                    "words": words_list,
+                }
+                segment_dicts.append(seg_dict)
+                if on_segment is not None:
+                    on_segment(seg_dict)
+        finally:
+            if vad_handler:
+                fw_logger.removeHandler(vad_handler)
+                fw_logger.setLevel(logging.INFO)
+
+        return segment_dicts
 
     def unload(self) -> None:
-        """ロードされた Whisper モデルをアンロードし、リソースを解放します。"""
+        """モデルをアンロードします。"""
         self._model = None
         gc.collect()
         try:
@@ -277,30 +218,3 @@ class SpeechTranscriber:
                 torch.cuda.empty_cache()
         except ImportError:
             pass
-
-    def close(self) -> None:
-        """リソースを解放してインスタンスをクローズします。"""
-        self.unload()
-
-    def __enter__(self) -> Self:
-        """コンテキストマネージャー開始。
-
-        Returns:
-            Self: 自身のインスタンス。
-        """
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: object | None,
-    ) -> None:
-        """コンテキストマネージャー終了時にリソースを解放します。
-
-        Args:
-            exc_type: 例外の型。
-            exc_val: 例外のインスタンス。
-            exc_tb: トレースバック。
-        """
-        self.close()

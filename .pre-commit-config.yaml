@@ -1,3 +1,5 @@
+fail_fast: true
+
 repos:
   - repo: local
     hooks:
@@ -24,9 +26,7 @@ repos:
 
       - id: pytest
         name: pytest
-        entry: uv run pytest
+        entry: uv run pytest --cov=audio_transcriber --cov-report=term-missing
         language: system
         pass_filenames: false
         always_run: true
-
-

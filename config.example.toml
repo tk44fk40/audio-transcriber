@@ -36,8 +36,8 @@ ENABLED = true
 # 使用するノイズ除去エンジン ("rnnoise", "resemble_enhance" 等)
 ENGINE = "rnnoise"
 
-# カスタムモデルパス (省略時はデフォルトを使用)
-# MODEL_PATH = "data/models/custom_rnnoise.onnx"
+# カスタムモデルパス (RNNoise モデル: "data/models/sh.rnnn", "data/models/cb.rnnn" 等)
+MODEL_PATH = "data/models/sh.rnnn"
 
 # ==============================================================================
 # メディア・トラック設定
@@ -127,13 +127,13 @@ MAX_CHARS_PER_SECOND = 12.0
 # ==============================================================================
 [subtitle]
 # 発話終了後の余韻表示秒数 (発声終了後に字幕を残す時間)
-SUBTITLE_END_PADDING = 1.0
+END_PADDING = 1.0
 
 # 字幕の最小表示秒数 (短い発言でも読み取れる最低時間)
-SUBTITLE_MIN_DURATION = 1.5
+MIN_DURATION = 1.5
 
 # 連続する字幕セグメント間の最小隙間秒数 (次セグメントとの重複防止)
-SUBTITLE_MIN_GAP = 0.05
+MIN_GAP = 0.05
 
 # 出力字幕フォーマットリスト ("srt", "vtt", "json")
-SUBTITLE_FORMATS = ["srt", "vtt", "json"]
+FORMATS = ["srt", "vtt", "json"]

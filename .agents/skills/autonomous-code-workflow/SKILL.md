@@ -29,12 +29,12 @@ description: audio-transcriber の開発ルール (.agents/AGENTS.md) に準拠�
 ### Step 3: アトミック（小単位）実装
 - `AGENTS.md` 規約準拠（1 ファイル最大 300 行以下、KISS原則）。小単位で実装コードを作成（GREEN）。
 
-### Step 4: ローカル自動コマンド検証
-ユーザーへ提示前に以下の検証を実行し、エラー 0 件を実証：
-1. `uv run ruff check --fix .`
-2. `uv run ruff format .`
-3. `uv run basedpyright`
-4. `uv run pytest -v --no-header <対象テスト>` (コミット直前は `uv run pytest -v --no-header --cov=audio_transcriber`)
+### Step 4: ローカル一括自動検証 (`pre-commit`)
+ユーザーへ提示前に `pre-commit` を実行し、全自動検証（Ruff check/format, basedpyright, pytest + カバレッジ）でエラー 0 件を実証：
+- **一括検証コマンド**: `uv run pre-commit run --all-files`
+- **テスト・検証の使い分け方針**:
+  - **TDDサイクル / 局所デバッグ時**: 高速にイテレーションを回すため、対象テストのみを個別実行（例: `uv run pytest -v --no-header tests/test_xxx.py`）。
+  - **コミット前 / 全体検証時**: `uv run pre-commit run --all-files` を実行し、静的解析・型チェック・全件テスト・カバレッジ出力を一括で網羅・検証する。
 
 ### Step 5: セルフチェック ＆ エビデンスログ提示
 コードの作成・修正後に以下の観点でセルフチェックを実施。チェックにパスするまで自律的に再修正し、結果とテストログを報告：
@@ -43,7 +43,7 @@ description: audio-transcriber の開発ルール (.agents/AGENTS.md) に準拠�
   2. 要件適合性
   3. 設計整合性
   4. 疎結合性
-  5. テスト妥当性・網羅性 (エッジケースカバー評価)
+  5. テスト妥当性・網羅性 (エッジケースカバー評価,未カバー妥当性評価)
   6. 簡潔性 (KISS)
   7. 副作用
   8. パフォーマンス

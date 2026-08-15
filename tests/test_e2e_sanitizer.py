@@ -137,7 +137,7 @@ def test_sanitizer_word_timestamp_alignment() -> None:
     # Assert
     assert len(cleaned) == 1
     assert cleaned[0].start == 1.45
-    assert cleaned[0].end == 3.0
+    assert cleaned[0].end == 2.8
 
 
 @pytest.mark.e2e

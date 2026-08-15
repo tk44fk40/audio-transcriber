@@ -51,9 +51,7 @@
 
 ## 8. コード品質 & 自動化ツール
 - Python 3.12+ 準拠、全関数・クラスに厳格な型注釈を付与。
-- 型チェック: `uv run basedpyright` （エラー 0 件）
-- リント / フォーマット: `uv run ruff check --fix .` および `uv run ruff format .`
-- 一括自動検証: `uv run pre-commit run --all-files`
+- **一括自動検証**: `uv run pre-commit run --all-files` （Ruff check/format, basedpyright, pytest + カバレッジ出力が連動）
 
 ## 9. テストコード (`tests/`) 規範 & カバレッジ基準
 - **構造化**: モジュール単位で `tests/test_*.py` に配置。テスト共通フィクスチャは `conftest.py` に集約。

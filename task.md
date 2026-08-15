@@ -13,5 +13,11 @@
 - [x] **Phase 1: モデル常駐型 VAD+Whisper コア ＆ 共通データモデル (Issue #1)**
   - [x] 1.1 `src/audio_transcriber/models.py` への `RecognizedSegment`, `VadState`, `SoundEvent` 追加
   - [x] 1.2 `src/audio_transcriber/stt.py` (`SpeechTranscriber`, `TranscriberProtocol`, `WhisperModelProtocol`) の実装
-  - [x] 1.3 `tests/test_models.py`, `tests/test_stt.py` の実装と単体テスト検証（全235件パス、98%カバレッジ）
-- [x] 設定ファイル・後処理モジュール整理（CLI・設定機能互換維持）
+  - [x] 1.3 `tests/test_models.py`, `tests/test_stt.py` の実装と単体テスト検証
+- [x] **CLI 機能強化・リアルタイム進捗表示**
+  - [x] 全 CLI オプションの `config.toml` 自動フォールバック（`DEFAULT_VIDEO_PATH`, `ENABLED` 等）
+  - [x] RNNoise モデル（`sh.rnnn`, `cb.rnnn`）配置および安全なフォールバック
+  - [x] CUDA 12 依存関係解決および `compat.py` による自動パス解決
+  - [x] パイプライン・文字起こし中のリアルタイム進捗 ＆ 発話ストリーミング表示（`on_progress`, `on_segment`）
+  - [x] `pre-commit` の `fail_fast: true` 設定
+  - [x] 全 243 件テスト合格・カバレッジ 98%

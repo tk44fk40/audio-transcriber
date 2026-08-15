@@ -106,17 +106,17 @@ class SegmentSanitizer:
                     )
                     text = text[:half_len]
 
-            # 単語レベルのタイムスタンプが存在する場合、文頭単語の開始時刻を発声開始位置として補正
+            # 単語レベルのタイムスタンプが存在する場合、文頭の開始時刻と文末の終了時刻で発声区間を厳密にトリミング
             if words:
-                first_word = (
-                    words[0]
-                    if isinstance(words, (list, tuple))
-                    else next(iter(words), None)
-                )
-                if first_word is not None:
-                    first_word_start = self.get_word_time(first_word, "start")
+                words_list = words if isinstance(words, (list, tuple)) else list(words)
+                if words_list:
+                    first_word_start = self.get_word_time(words_list[0], "start")
                     if first_word_start is not None:
                         start = first_word_start
+
+                    last_word_end = self.get_word_time(words_list[-1], "end")
+                    if last_word_end is not None:
+                        end = last_word_end
 
             duration = max(end - start, 0.1)
             chars_per_sec = len(text) / duration

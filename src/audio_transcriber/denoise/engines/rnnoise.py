@@ -8,6 +8,12 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# デフォルトで探索する RNNoise モデルパス候補
+DEFAULT_MODEL_CANDIDATES = [
+    Path("data/models/sh.rnnn"),
+    Path("data/models/cb.rnnn"),
+]
+
 
 class RNNoiseDenoiser:
     """FFmpeg の arnndn フィルタ（RNNoise）を用いた低遅延・軽量ノイズ除去エンジン。"""
@@ -16,9 +22,19 @@ class RNNoiseDenoiser:
         """RNNoiseDenoiser を初期化します。
 
         Args:
-            model_path: RNNoise モデルファイル (.rnnn) のパス。None の場合はフィルタ既定またはモデルなしで動作。
+            model_path: RNNoise モデルファイル (.rnnn) のパス。
         """
-        self.model_path = Path(model_path).resolve() if model_path is not None else None
+        self.model_path: Path | None = (
+            Path(model_path).resolve() if model_path is not None else None
+        )
+
+    @staticmethod
+    def _find_default_model() -> Path | None:
+        """プロジェクト内のデフォルト RNNoise モデルを探索します。"""
+        for candidate in DEFAULT_MODEL_CANDIDATES:
+            if candidate.is_file():
+                return candidate.resolve()
+        return None
 
     def denoise(self, input_path: Path | str, output_path: Path | str) -> Path:
         """FFmpeg arnndn フィルタを用いて音声のノイズ除去を実行します。
@@ -41,15 +57,28 @@ class RNNoiseDenoiser:
 
         out_p.parent.mkdir(parents=True, exist_ok=True)
 
-        # フィルタ文字列の構築: 48kHz にリサンプル後に arnndn を適用
         if self.model_path is not None:
             if not self.model_path.exists():
                 raise RuntimeError(
                     f"指定された RNNoise モデルファイルが見つかりません: {self.model_path}"
                 )
-            filter_str = f"aresample=48000,arnndn=m={self.model_path}"
+            resolved_model: Path | None = self.model_path
         else:
-            filter_str = "aresample=48000,arnndn"
+            resolved_model = self._find_default_model()
+
+        if resolved_model is not None and resolved_model.is_file():
+            filter_str = f"aresample=48000,arnndn=m={resolved_model}"
+            logger.info(
+                "RNNoise (FFmpeg arnndn: %s) でノイズ除去を開始: %s -> %s",
+                resolved_model.name,
+                in_p.name,
+                out_p.name,
+            )
+        else:
+            logger.warning(
+                "RNNoise モデルファイルが見つかりません。ノイズ除去をバイパスして 48kHz 変換のみ行います。"
+            )
+            filter_str = "aresample=48000"
 
         cmd = [
             "ffmpeg",
@@ -64,12 +93,6 @@ class RNNoiseDenoiser:
             "1",
             str(out_p),
         ]
-
-        logger.info(
-            "RNNoise (FFmpeg arnndn) でノイズ除去を開始します: %s -> %s",
-            in_p.name,
-            out_p.name,
-        )
 
         try:
             result = subprocess.run(

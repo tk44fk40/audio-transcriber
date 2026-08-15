@@ -226,3 +226,72 @@ def remux_video(
         ) from e
 
     return output_video
+
+
+def get_timecode_offset(media_path: Path) -> float:
+    """動画メタデータ内のタイムコード (SMPTE timecode) を検出し開始秒数を算出します。
+
+    Args:
+        media_path: 対象の動画またはメディアファイルパス。
+
+    Returns:
+        float: タイムコードの開始秒数 (タイムコードが存在しない場合は 0.0)。
+    """
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "stream=r_frame_rate,avg_frame_rate:stream_tags=timecode:format_tags=timecode",
+        "-of",
+        "json",
+        str(media_path),
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        data = json.loads(proc.stdout)
+    except Exception as e:
+        logger.debug("タイムコード取得の ffprobe 実行をスキップ/失敗: %s", e)
+        return 0.0
+
+    tc_str: str | None = None
+    fps: float = 30.0
+
+    # 1. format_tags から timecode を探索
+    fmt_tags = data.get("format", {}).get("tags", {})
+    if "timecode" in fmt_tags:
+        tc_str = fmt_tags["timecode"]
+
+    # 2. streams から timecode と frame_rate を探索
+    streams = data.get("streams", [])
+    for s in streams:
+        tags = s.get("tags", {})
+        if not tc_str and "timecode" in tags:
+            tc_str = tags["timecode"]
+        r_fps = s.get("r_frame_rate", "")
+        if r_fps and "/" in r_fps:
+            try:
+                num, den = r_fps.split("/")
+                val = float(num) / float(den)
+                if val > 0:
+                    fps = val
+            except (ValueError, ZeroDivisionError):
+                pass
+
+    if not tc_str:
+        return 0.0
+
+    # SMPTE タイムコード (HH:MM:SS:FF または HH:MM:SS;FF) を秒数に変換
+    sep = ";" if ";" in tc_str else ":"
+    parts = tc_str.strip().split(sep)
+    if len(parts) != 4:
+        return 0.0
+
+    try:
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        seconds = int(parts[2])
+        frames = int(parts[3])
+        return hours * 3600.0 + minutes * 60.0 + seconds + (frames / fps)
+    except ValueError:
+        return 0.0

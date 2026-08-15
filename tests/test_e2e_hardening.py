@@ -12,19 +12,26 @@ import pytest
 from typer.testing import CliRunner
 
 from audio_transcriber.cli import app
-from audio_transcriber.config import load_config, parse_config_dict
+from audio_transcriber.config import AppConfig, load_config, parse_config_dict
 from audio_transcriber.pipeline import run_pipeline
 
 runner = CliRunner()
 
 
-def test_hardening_non_ascii_and_special_character_paths(tmp_path: Path) -> None:
+def test_hardening_non_ascii_and_special_character_paths(
+    tmp_path: Path,
+    base_config: AppConfig,
+    dummy_provider_class: type,
+) -> None:
     """日本語・記号・空白を含むメディアファイルパスが正常に処理されることを検証する。"""
     # Arrange
     special_name = "【実況】テスト 動画 (2026) #1 [1080p] 特殊文字.mp4"
     special_file = tmp_path / special_name
     special_file.write_bytes(b"DATA")
     out_dir = tmp_path / "出力先 ディレクトリ (日本語)"
+
+    base_config.paths.output_dir = out_dir
+    base_config.media.mic_track = 2
 
     def fake_extract(media_path: Path, track_number: int, output_wav: Path) -> Path:
         output_wav.write_bytes(b"EXT")
@@ -46,25 +53,29 @@ def test_hardening_non_ascii_and_special_character_paths(tmp_path: Path) -> None
     mock_denoiser = MagicMock()
     mock_denoiser.denoise.side_effect = fake_denoise
 
+    transcriber = dummy_provider_class(
+        model_size=base_config.model.model_size,
+        vad_filter=base_config.transcribe.vad.vad_filter,
+        beam_size=base_config.transcribe.beam_size,
+    )
+    transcriber.transcribe_file = MagicMock(
+        return_value=[{"start": 0.0, "end": 1.0, "text": "文字起こし"}]
+    )
+
     with (
         patch(
             "audio_transcriber.pipeline.extract_audio_track", side_effect=fake_extract
         ),
         patch("audio_transcriber.pipeline.create_denoiser", return_value=mock_denoiser),
-        patch(
-            "audio_transcriber.pipeline.transcribe_audio",
-            return_value=("文字起こし", []),
-        ),
         patch("audio_transcriber.pipeline.remux_video", side_effect=fake_remux),
     ):
         # Act
         result = run_pipeline(
             input_path=special_file,
-            output_dir=out_dir,
-            mic_track=2,
+            cfg=base_config,
             denoise=True,
             transcribe=True,
-            remux=True,
+            transcriber=transcriber,
         )
 
     # Assert
@@ -72,6 +83,9 @@ def test_hardening_non_ascii_and_special_character_paths(tmp_path: Path) -> None
     assert result.input_file == special_file
     assert result.srt_file == out_dir / f"{stem}.srt"
     assert result.remuxed_video == out_dir / f"{stem}_clean.mp4"
+    assert transcriber.kwargs["model_size"] == base_config.model.model_size
+    assert transcriber.kwargs["vad_filter"] == base_config.transcribe.vad.vad_filter
+    assert transcriber.kwargs["beam_size"] == base_config.transcribe.beam_size
 
 
 def test_hardening_extreme_numeric_config_parameters() -> None:
@@ -113,26 +127,39 @@ def test_hardening_extreme_numeric_config_parameters() -> None:
     assert cfg.subtitle.end_padding == 100.0
 
 
-def test_hardening_empty_zero_byte_media_file(tmp_path: Path) -> None:
+def test_hardening_empty_zero_byte_media_file(
+    tmp_path: Path,
+    base_config: AppConfig,
+    dummy_provider_class: type,
+) -> None:
     """0バイトの空ファイルが入力された場合でもパイプラインが適切に動作することを検証する。"""
     # Arrange
     empty_file = tmp_path / "empty_input.wav"
     empty_file.write_bytes(b"")
     out_dir = tmp_path / "empty_out"
 
+    base_config.paths.output_dir = out_dir
+
     mock_denoiser = MagicMock()
     mock_denoiser.denoise.side_effect = lambda inp, outp: outp.write_bytes(b"")
 
+    transcriber = dummy_provider_class(
+        model_size=base_config.model.model_size,
+        vad_filter=base_config.transcribe.vad.vad_filter,
+        beam_size=base_config.transcribe.beam_size,
+    )
+    transcriber.transcribe_file = MagicMock(return_value=[])
+
     with (
         patch("audio_transcriber.pipeline.create_denoiser", return_value=mock_denoiser),
-        patch("audio_transcriber.pipeline.transcribe_audio", return_value=("", [])),
     ):
         # Act
         result = run_pipeline(
             input_path=empty_file,
-            output_dir=out_dir,
+            cfg=base_config,
             denoise=True,
             transcribe=True,
+            transcriber=transcriber,
         )
 
     # Assert
@@ -140,6 +167,9 @@ def test_hardening_empty_zero_byte_media_file(tmp_path: Path) -> None:
     assert result.denoised_audio == out_dir / "empty_input_clean.wav"
     assert result.srt_file == out_dir / "empty_input.srt"
     assert result.transcript_text == ""
+    assert transcriber.kwargs["model_size"] == base_config.model.model_size
+    assert transcriber.kwargs["vad_filter"] == base_config.transcribe.vad.vad_filter
+    assert transcriber.kwargs["beam_size"] == base_config.transcribe.beam_size
 
 
 def test_hardening_corrupted_toml_config_recovery(tmp_path: Path) -> None:

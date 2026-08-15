@@ -171,7 +171,8 @@ MODEL_SIZE = "tiny"
     assert result.exit_code == 0
     mock_run.assert_called_once()
     _, kwargs = mock_run.call_args
-    assert kwargs["output_dir"] == tmp_path / "cli_out"
-    assert kwargs["mic_track"] == 3
-    assert kwargs["model_size"] == "large-v3"
-    assert kwargs["initial_prompt"] == "CLI優先プロンプト"
+    cfg_arg = kwargs["cfg"]
+    assert cfg_arg.paths.output_dir == tmp_path / "cli_out"
+    assert cfg_arg.media.mic_track == 3
+    assert cfg_arg.model.model_size == "large-v3"
+    assert cfg_arg.transcribe.initial_prompt == "CLI優先プロンプト"

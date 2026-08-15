@@ -242,7 +242,7 @@ def test_sanitizer_handles_dict_and_object_segments() -> None:
     # Assert
     assert len(results) == 1
     assert results[0].start == 0.15
-    assert results[0].end == 2.0
+    assert results[0].end == 1.9
     assert results[0].text == "辞書セグメント"
 
 

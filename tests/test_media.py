@@ -236,3 +236,40 @@ def test_ffmpeg_real_multitrack_workflow(tmp_path: Path):
     # 6. Verify remuxed video tracks
     new_tracks = get_audio_tracks(remuxed_video)
     assert len(new_tracks) == 2
+
+
+def test_get_timecode_offset_with_valid_timecode():
+    """Test get_timecode_offset parses SMPTE timecode correctly with fps."""
+    from audio_transcriber.media import get_timecode_offset
+
+    mock_stdout = json.dumps(
+        {
+            "streams": [
+                {
+                    "r_frame_rate": "60/1",
+                    "tags": {"timecode": "00:08:38:40"},
+                }
+            ],
+            "format": {"tags": {}},
+        }
+    )
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout=mock_stdout, returncode=0)
+        offset = get_timecode_offset(Path("sample.mov"))
+
+    # 8min + 38sec + 40/60sec = 480 + 38 + 0.6666... = 518.6666...
+    assert pytest.approx(offset, 0.001) == 518.6667
+
+
+def test_get_timecode_offset_without_timecode():
+    """Test get_timecode_offset returns 0.0 when no timecode metadata exists."""
+    from audio_transcriber.media import get_timecode_offset
+
+    mock_stdout = json.dumps(
+        {"streams": [{"r_frame_rate": "30/1"}], "format": {"tags": {}}}
+    )
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout=mock_stdout, returncode=0)
+        offset = get_timecode_offset(Path("no_timecode.mp4"))
+
+    assert offset == 0.0
