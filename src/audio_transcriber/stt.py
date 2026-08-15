@@ -50,7 +50,7 @@ class TranscriberProvider(Protocol):
         self,
         file_path: Path | str,
         on_segment: Callable[[dict[str, Any]], None] | None = None,
-        on_progress: Callable[[str, str], None] | None = None,
+        on_progress: Callable[[str, Any], None] | None = None,
     ) -> list[dict[str, Any]]:
         """音声ファイルパスから文字起こしを実行し、セグメント辞書のリストを返します。"""
         ...
@@ -59,7 +59,7 @@ class TranscriberProvider(Protocol):
 class VadProgressHandler(logging.Handler):
     """Faster-Whisper の内部ロガーから VAD チャンク出力を横取りして通知するハンドラ"""
 
-    def __init__(self, on_progress: Callable[[str, str], None] | None):
+    def __init__(self, on_progress: Callable[[str, Any], None] | None):
         """初期化します。"""
         super().__init__()
         self.on_progress = on_progress
@@ -75,13 +75,15 @@ class VadProgressHandler(logging.Handler):
                 "VAD filter kept the following audio segments:", ""
             ).strip()
 
-            segments = chunks_str.split(", ")
-            formatted_chunks = []
-            for i in range(0, len(segments), 5):
-                formatted_chunks.append(", ".join(segments[i : i + 5]))
+            import re
 
-            formatted_str = "\n  ".join(formatted_chunks)
-            self.on_progress("vad", f"発話区間検出 (VAD):\n  {formatted_str}")
+            pattern = re.compile(r"([\d\.]+)s\s*-\s*([\d\.]+)s")
+            vad_chunks = [
+                (float(m.group(1)), float(m.group(2)))
+                for m in pattern.finditer(chunks_str)
+            ]
+
+            self.on_progress("vad_chunks", vad_chunks)
 
 
 class FasterWhisperProvider:
@@ -151,7 +153,7 @@ class FasterWhisperProvider:
         self,
         file_path: Path | str,
         on_segment: Callable[[dict[str, Any]], None] | None = None,
-        on_progress: Callable[[str, str], None] | None = None,
+        on_progress: Callable[[str, Any], None] | None = None,
     ) -> list[dict[str, Any]]:
         """音声ファイルパスから文字起こしを実行し、セグメント辞書のリストを返します。"""
         path = Path(file_path)
@@ -160,50 +162,57 @@ class FasterWhisperProvider:
         if self._model is None:
             raise RuntimeError("モデルがロードされていません")
 
-        # VADログフックの準備
-        fw_logger = logging.getLogger("faster_whisper")
-        vad_handler = None
+        # VADログフックの準備の代わりに、事前にVADチャンクを取得する
         if on_progress and self.vad_filter:
-            fw_logger.setLevel(logging.DEBUG)
-            vad_handler = VadProgressHandler(on_progress)
-            fw_logger.addHandler(vad_handler)
+            try:
+                from faster_whisper.audio import decode_audio
+                from faster_whisper.vad import VadOptions, get_speech_timestamps
 
-        try:
-            segments_gen, _info = self._model.transcribe(
-                str(path), **self._build_kwargs()
-            )
+                raw_audio = decode_audio(str(path))
+                if isinstance(raw_audio, tuple):
+                    audio_arr = raw_audio[0]
+                else:
+                    audio_arr = raw_audio
+                vad_opts = VadOptions(**(self.vad_parameters or {}))
+                clip_timestamps = get_speech_timestamps(audio_arr, vad_opts)
+                vad_chunks = [
+                    (float(c["start"]), float(c["end"])) for c in clip_timestamps
+                ]
+                on_progress("vad_chunks", vad_chunks)
+            except Exception as e:
+                logging.getLogger(__name__).warning(
+                    "VAD情報の事前取得に失敗しました: %s", e
+                )
 
-            segment_dicts: list[dict[str, Any]] = []
-            for i, s in enumerate(segments_gen, start=1):
-                words_list = []
-                words_attr = getattr(s, "words", None)
-                if words_attr is not None:
-                    for w in words_attr:
-                        words_list.append(
-                            {
-                                "start": float(getattr(w, "start", 0.0)),
-                                "end": float(getattr(w, "end", 0.0)),
-                                "word": getattr(w, "word", ""),
-                                "probability": float(getattr(w, "probability", 0.0)),
-                            }
-                        )
+        segments_gen, _info = self._model.transcribe(str(path), **self._build_kwargs())
 
-                seg_dict = {
-                    "id": getattr(s, "id", i),
-                    "start": float(getattr(s, "start", 0.0)),
-                    "end": float(getattr(s, "end", 0.0)),
-                    "text": getattr(s, "text", "").strip(),
-                    "no_speech_prob": float(getattr(s, "no_speech_prob", 0.0)),
-                    "compression_ratio": float(getattr(s, "compression_ratio", 0.0)),
-                    "words": words_list,
-                }
-                segment_dicts.append(seg_dict)
-                if on_segment is not None:
-                    on_segment(seg_dict)
-        finally:
-            if vad_handler:
-                fw_logger.removeHandler(vad_handler)
-                fw_logger.setLevel(logging.INFO)
+        segment_dicts: list[dict[str, Any]] = []
+        for i, s in enumerate(segments_gen, start=1):
+            words_list = []
+            words_attr = getattr(s, "words", None)
+            if words_attr is not None:
+                for w in words_attr:
+                    words_list.append(
+                        {
+                            "start": float(getattr(w, "start", 0.0)),
+                            "end": float(getattr(w, "end", 0.0)),
+                            "word": getattr(w, "word", ""),
+                            "probability": float(getattr(w, "probability", 0.0)),
+                        }
+                    )
+
+            seg_dict = {
+                "id": getattr(s, "id", i),
+                "start": float(getattr(s, "start", 0.0)),
+                "end": float(getattr(s, "end", 0.0)),
+                "text": getattr(s, "text", "").strip(),
+                "no_speech_prob": float(getattr(s, "no_speech_prob", 0.0)),
+                "compression_ratio": float(getattr(s, "compression_ratio", 0.0)),
+                "words": words_list,
+            }
+            segment_dicts.append(seg_dict)
+            if on_segment is not None:
+                on_segment(seg_dict)
 
         return segment_dicts
 

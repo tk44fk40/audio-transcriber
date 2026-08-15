@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from audio_transcriber.config import DenoiseConfig
+from audio_transcriber.config import DenoiseConfig, MasteringConfig
 from audio_transcriber.denoise import (
     AudioDenoiser,
     PassThroughDenoiser,
@@ -100,6 +100,38 @@ def test_rnnoise_denoiser_with_model(tmp_path: Path):
         cmd = mock_run.call_args[0][0]
         filter_idx = cmd.index("-af") + 1
         assert f"arnndn=m={model_file.resolve()}" in cmd[filter_idx]
+
+
+def test_rnnoise_denoiser_with_mastering(tmp_path: Path):
+    """RNNoiseDenoiser includes mastering filters when enabled."""
+    input_wav = tmp_path / "input.wav"
+    output_wav = tmp_path / "clean" / "output.wav"
+    input_wav.write_bytes(b"input data")
+
+    mastering_cfg = MasteringConfig(
+        enabled=True,
+        noise_gate_threshold=0.03,
+        loudness_i=-15.0,
+        loudness_tp=-2.5,
+        loudness_lra=10.0,
+        final_limit_db=-1.0,
+    )
+    denoiser = RNNoiseDenoiser(mastering_config=mastering_cfg)
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        denoiser.denoise(input_wav, output_wav)
+
+        cmd = mock_run.call_args[0][0]
+        filter_idx = cmd.index("-af") + 1
+        filter_str = cmd[filter_idx]
+
+        # Verify the filter chain has mastering stages
+        assert "aresample=48000" in filter_str
+        assert "compand=attacks=0" in filter_str
+        assert "alimiter=level_in=1" in filter_str
+        assert "loudnorm=I=-15.0" in filter_str
+        assert "alimiter=level_in=1:level_out=1:limit=-1.0" in filter_str
 
 
 def test_rnnoise_denoiser_missing_input(tmp_path: Path):

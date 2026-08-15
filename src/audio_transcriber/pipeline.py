@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +36,12 @@ class PipelineResult:
     remuxed_video: Path | None = None
     vtt_file: Path | None = None
     json_file: Path | None = None
+    vad_chunks: list[tuple[float, float]] = field(default_factory=list)
+    raw_segments: list[dict[str, Any]] = field(default_factory=list)
+    sanitized_segments: list[Any] = field(default_factory=list)
+    processed_segments: list[Any] = field(default_factory=list)
+    final_segments: list[Any] = field(default_factory=list)
+    processing_events: list[dict[str, Any]] = field(default_factory=list)
 
 
 def run_pipeline(
@@ -107,6 +113,16 @@ def run_pipeline(
         pp_cfg = cfg.post_process
         sub_cfg = cfg.subtitle
 
+        vad_chunks_collected: list[tuple[float, float]] = []
+        processing_events: list[dict[str, Any]] = []
+
+        def _internal_on_progress(stage: str, message: Any) -> None:
+            if stage == "vad_chunks":
+                vad_chunks_collected.extend(message)
+                return
+            if on_progress:
+                on_progress(stage, message)
+
         def _internal_on_segment(seg_dict: dict[str, Any]) -> None:
             if on_segment is not None:
                 mapped = dict(seg_dict)
@@ -146,25 +162,56 @@ def run_pipeline(
         segment_dicts = active_transcriber.transcribe_file(
             file_path=audio_to_transcribe,
             on_segment=_internal_on_segment,
-            on_progress=on_progress,
+            on_progress=_internal_on_progress,
         )
 
-        # タイムコードオフセットを適用したセグメントリストに変換
+        # タイムコードオフセットを適用しつつ、1.0秒以上の単語ギャップがあればセグメントを分割する
         offset_segment_dicts = []
+        GAP_THRESHOLD = 1.0
+
         for d in segment_dicts:
-            new_d = dict(d)
-            new_d["start"] = float(d["start"]) + timecode_offset
-            new_d["end"] = float(d["end"]) + timecode_offset
-            if d.get("words"):
-                new_words = []
-                for w in d["words"]:
-                    if isinstance(w, dict):
-                        new_w = dict(w)
-                        new_w["start"] = float(w.get("start", 0.0)) + timecode_offset
-                        new_w["end"] = float(w.get("end", 0.0)) + timecode_offset
-                        new_words.append(new_w)
-                new_d["words"] = new_words
-            offset_segment_dicts.append(new_d)
+            words = d.get("words", [])
+            if not words:
+                new_d = dict(d)
+                new_d["start"] = float(d["start"]) + timecode_offset
+                new_d["end"] = float(d["end"]) + timecode_offset
+                offset_segment_dicts.append(new_d)
+                continue
+
+            current_chunk = []
+            current_start = float(words[0].get("start", 0.0)) + timecode_offset
+
+            for i in range(len(words)):
+                w = dict(words[i])
+                w["start"] = float(words[i].get("start", 0.0)) + timecode_offset
+                w["end"] = float(words[i].get("end", 0.0)) + timecode_offset
+                current_chunk.append(w)
+
+                if i < len(words) - 1:
+                    next_start = float(words[i + 1].get("start", 0.0)) + timecode_offset
+                    gap = next_start - w["end"]
+                    if gap >= GAP_THRESHOLD:
+                        new_seg = dict(d)
+                        new_seg["words"] = current_chunk
+                        new_seg["start"] = current_start
+                        new_seg["end"] = w["end"]
+                        new_seg["text"] = "".join(
+                            x.get("word", "") for x in current_chunk
+                        ).strip()
+                        offset_segment_dicts.append(new_seg)
+
+                        current_chunk = []
+                        current_start = next_start
+
+            if current_chunk:
+                new_seg = dict(d)
+                new_seg["words"] = current_chunk
+                new_seg["start"] = current_start
+                new_seg["end"] = current_chunk[-1]["end"]
+                new_seg["text"] = "".join(
+                    x.get("word", "") for x in current_chunk
+                ).strip()
+                offset_segment_dicts.append(new_seg)
 
         raw_count = len(offset_segment_dicts)
         if on_progress:
@@ -212,12 +259,22 @@ def run_pipeline(
                     round(float(raw_seg["end"]), 3),
                 )
                 if key not in sanitized_ids:
-                    s_str = SubtitleExporter.format_timestamp(float(raw_seg["start"]))
-                    dur = float(raw_seg["end"]) - float(raw_seg["start"])
-                    on_progress(
-                        "postprocess_dropped",
-                        f"[除外] {s_str} ({dur:.1f}s) '{raw_seg['text']}' (無音捏造/高速ループ)",
+                    s_start = float(raw_seg["start"])
+                    prob = float(raw_seg.get("no_speech_prob", 0.0))
+                    processing_events.append(
+                        {
+                            "start": s_start,
+                            "type": "無音捏造等除外",
+                            "message": f"no_speech_prob: {prob:.2f}",
+                        }
                     )
+                    if on_progress:
+                        s_str = SubtitleExporter.format_timestamp(s_start)
+                        dur = float(raw_seg["end"]) - s_start
+                        on_progress(
+                            "postprocess_dropped",
+                            f"[除外] {s_str} ({dur:.1f}s) '{raw_seg['text']}' (無音捏造/高速ループ)",
+                        )
 
         dict_path = cfg.paths.custom_dict_path
         processor = TextPostProcessor(
@@ -238,13 +295,20 @@ def run_pipeline(
                 a_text = getattr(after_seg, "text", "")
                 if b_text != a_text:
                     replaced_count += 1
-                    s_str = SubtitleExporter.format_timestamp(
-                        float(getattr(after_seg, "start", 0.0))
+                    s_start = float(getattr(after_seg, "start", 0.0))
+                    processing_events.append(
+                        {
+                            "start": s_start,
+                            "type": "テキスト置換",
+                            "message": f'"{b_text}" ➔ "{a_text}"',
+                        }
                     )
-                    on_progress(
-                        "postprocess_replaced",
-                        f"[置換・正規化] {s_str}: '{b_text}' ➔ '{a_text}'",
-                    )
+                    if on_progress:
+                        s_str = SubtitleExporter.format_timestamp(s_start)
+                        on_progress(
+                            "postprocess_replaced",
+                            f"[置換・正規化] {s_str}: '{b_text}' ➔ '{a_text}'",
+                        )
 
         adjuster = SubtitleTimingAdjuster(
             end_padding=sub_cfg.end_padding,
@@ -271,10 +335,18 @@ def run_pipeline(
                     ):
                         overlap_prevented_count += 1
                         txt = getattr(f_seg, "text", "")
-                        on_progress(
-                            "postprocess_overlap_prevented",
-                            f"[重複防止] '{txt}': 終了時刻 {SubtitleExporter.format_timestamp(raw_target_end)} ➔ {SubtitleExporter.format_timestamp(f_end)} (次発話 {SubtitleExporter.format_timestamp(next_start)} との重複を回避)",
+                        processing_events.append(
+                            {
+                                "start": p_start,
+                                "type": "重複防止",
+                                "message": f"終了時刻 {SubtitleExporter.format_timestamp(raw_target_end)} ➔ {SubtitleExporter.format_timestamp(f_end)} (次発話との重複を回避)",
+                            }
                         )
+                        if on_progress:
+                            on_progress(
+                                "postprocess_overlap_prevented",
+                                f"[重複防止] '{txt}': 終了時刻 {SubtitleExporter.format_timestamp(raw_target_end)} ➔ {SubtitleExporter.format_timestamp(f_end)} (次発話 {SubtitleExporter.format_timestamp(next_start)} との重複を回避)",
+                            )
             on_progress(
                 "postprocess_summary",
                 f"サマリー: {raw_count}件中 {dropped_count}件除外、{replaced_count}件置換、{overlap_prevented_count}件重複防止 (確定字幕: {len(final_segments)}件)",
@@ -323,4 +395,10 @@ def run_pipeline(
         remuxed_video=remuxed_video_path,
         vtt_file=vtt_path,
         json_file=json_path,
+        vad_chunks=vad_chunks_collected if "vad_chunks_collected" in locals() else [],  # pyright: ignore[reportPossiblyUnboundVariable]
+        raw_segments=offset_segment_dicts if "offset_segment_dicts" in locals() else [],  # pyright: ignore[reportPossiblyUnboundVariable]
+        sanitized_segments=sanitized if "sanitized" in locals() else [],  # pyright: ignore[reportPossiblyUnboundVariable]
+        processed_segments=processed if "processed" in locals() else [],  # pyright: ignore[reportPossiblyUnboundVariable]
+        final_segments=final_segments if "final_segments" in locals() else [],  # pyright: ignore[reportPossiblyUnboundVariable]
+        processing_events=processing_events if "processing_events" in locals() else [],  # pyright: ignore[reportPossiblyUnboundVariable]
     )

@@ -55,6 +55,12 @@ uv run audio-transcriber /path/to/mic_audio.wav -o ./output
 | `--min-silence-ms` | | `500` | VAD（無音検出）発話区切り閾値 (ms) |
 | `--denoise-only` | | `False` | ノイズ除去のみ実行 |
 | `--transcribe-only` | | `False` | 文字起こしのみ実行 |
+| `--mastering-enabled / --no-mastering` | | `False` | マスタリング前処理を有効化するかどうか |
+| `--noise-gate-threshold` | | `0.04` | ノイズゲートの閾値 |
+| `--loudness-i` | | `-16.0` | ノーマライズの目標ラウドネス (LUFS) |
+| `--loudness-tp` | | `-2.0` | トゥルーピークリミット (dBTP) |
+| `--loudness-lra` | | `11.0` | ラウドネスレンジ (LU) |
+| `--final-limit-db` | | `-2.0` | 最終ハードリミッター上限 (dB) |
 
 ### 3. 設定ファイル (`config.toml`) によるカスタマイズ
 
@@ -88,6 +94,14 @@ initial_prompt = """
 [transcribe.vad]
 vad_filter = true
 min_silence_duration_ms = 500
+
+[mastering]
+enabled = false
+noise_gate_threshold = 0.04
+loudness_i = -16.0
+loudness_tp = -2.0
+loudness_lra = 11.0
+final_limit_db = -2.0
 ```
 
 

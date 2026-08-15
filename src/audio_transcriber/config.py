@@ -143,6 +143,28 @@ class PipelineConfig:
 
 
 @dataclass
+class MasteringConfig:
+    """音声マスタリング前処理設定。"""
+
+    enabled: bool = False
+    noise_gate_threshold: float = 0.04
+    loudness_i: float = -16.0
+    loudness_tp: float = -2.0
+    loudness_lra: float = 11.0
+    final_limit_db: float = -2.0
+
+
+@dataclass
+class StreamConfig:
+    """ストリーミング処理設定。"""
+
+    chunk_size_ms: int = 100
+    buffer_size_seconds: float = 10.0
+    sample_rate: int = 16000
+    flush_timeout_ms: int = 1000
+
+
+@dataclass
 class AppConfig:
     """アプリケーション全体の設定。"""
 
@@ -154,6 +176,8 @@ class AppConfig:
     transcribe: TranscribeConfig = field(default_factory=TranscribeConfig)
     post_process: PostProcessConfig = field(default_factory=PostProcessConfig)
     subtitle: SubtitleConfig = field(default_factory=SubtitleConfig)
+    stream: StreamConfig = field(default_factory=StreamConfig)
+    mastering: MasteringConfig = field(default_factory=MasteringConfig)
 
     @property
     def output_dir(self) -> Path:
@@ -298,6 +322,30 @@ def parse_config_dict(data: dict[str, Any]) -> AppConfig:
         formats=parsed_formats,
     )
 
+    # Stream
+    stream_d = norm.get("stream", {})
+    stream = StreamConfig(
+        chunk_size_ms=int(_get_val(stream_d, "chunk_size_ms", default=100)),
+        buffer_size_seconds=float(
+            _get_val(stream_d, "buffer_size_seconds", default=10.0)
+        ),
+        sample_rate=int(_get_val(stream_d, "sample_rate", default=16000)),
+        flush_timeout_ms=int(_get_val(stream_d, "flush_timeout_ms", default=1000)),
+    )
+
+    # Mastering
+    master_d = norm.get("mastering", {})
+    mastering = MasteringConfig(
+        enabled=bool(_get_val(master_d, "enabled", default=False)),
+        noise_gate_threshold=float(
+            _get_val(master_d, "noise_gate_threshold", default=0.04)
+        ),
+        loudness_i=float(_get_val(master_d, "loudness_i", default=-16.0)),
+        loudness_tp=float(_get_val(master_d, "loudness_tp", default=-2.0)),
+        loudness_lra=float(_get_val(master_d, "loudness_lra", default=11.0)),
+        final_limit_db=float(_get_val(master_d, "final_limit_db", default=-2.0)),
+    )
+
     return AppConfig(
         paths=paths,
         pipeline=pipeline,
@@ -307,6 +355,8 @@ def parse_config_dict(data: dict[str, Any]) -> AppConfig:
         transcribe=transcribe,
         post_process=post_process,
         subtitle=subtitle,
+        stream=stream,
+        mastering=mastering,
     )
 
 

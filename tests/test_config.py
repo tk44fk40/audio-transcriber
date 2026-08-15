@@ -13,6 +13,7 @@ import pytest
 from audio_transcriber.config import (
     AppConfig,
     DenoiseConfig,
+    MasteringConfig,
     MediaConfig,
     ModelConfig,
     PathConfig,
@@ -33,6 +34,7 @@ def test_default_config_instances() -> None:
     denoise_cfg = DenoiseConfig()
     post_cfg = PostProcessConfig()
     sub_cfg = SubtitleConfig()
+    mastering_cfg = MasteringConfig()
     app_cfg = AppConfig()
 
     # Assert - PathConfig defaults
@@ -62,6 +64,14 @@ def test_default_config_instances() -> None:
     )
     assert sub_cfg.formats == ["srt", "vtt", "json"]
 
+    # Assert - MasteringConfig defaults
+    assert mastering_cfg.enabled is False
+    assert mastering_cfg.noise_gate_threshold == 0.04
+    assert mastering_cfg.loudness_i == -16.0
+    assert mastering_cfg.loudness_tp == -2.0
+    assert mastering_cfg.loudness_lra == 11.0
+    assert mastering_cfg.final_limit_db == -2.0
+
     # Assert - AppConfig root defaults
     assert (app_cfg.output_dir, app_cfg.default_video_path) == (Path("./output"), None)
     assert (app_cfg.debug_output_dir, app_cfg.custom_dict_path) == (None, None)
@@ -81,6 +91,7 @@ def test_default_config_instances() -> None:
         vad=VadConfig(vad_filter=True, min_silence_duration_ms=500, vad_threshold=0.5),
     )
     assert (app_cfg.post_process, app_cfg.subtitle) == (post_cfg, sub_cfg)
+    assert app_cfg.mastering == mastering_cfg
 
 
 def test_load_config_no_file_returns_default(
@@ -146,6 +157,14 @@ def test_load_config_full_custom_toml(tmp_path: Path) -> None:
     MIN_DURATION = 1.2
     MIN_GAP = 0.1
     FORMATS = ["srt", "vtt"]
+
+    [mastering]
+    ENABLED = true
+    NOISE_GATE_THRESHOLD = 0.02
+    LOUDNESS_I = -14.0
+    LOUDNESS_TP = -1.0
+    LOUDNESS_LRA = 9.0
+    FINAL_LIMIT_DB = -1.5
     """
     config_file = tmp_path / "custom_config.toml"
     config_file.write_text(toml_content, encoding="utf-8")
@@ -205,6 +224,12 @@ def test_load_config_full_custom_toml(tmp_path: Path) -> None:
         0.1,
     )
     assert cfg.subtitle.formats == ["srt", "vtt"]
+    assert cfg.mastering.enabled is True
+    assert cfg.mastering.noise_gate_threshold == 0.02
+    assert cfg.mastering.loudness_i == -14.0
+    assert cfg.mastering.loudness_tp == -1.0
+    assert cfg.mastering.loudness_lra == 9.0
+    assert cfg.mastering.final_limit_db == -1.5
 
 
 def test_load_config_partial_fallback(tmp_path: Path) -> None:

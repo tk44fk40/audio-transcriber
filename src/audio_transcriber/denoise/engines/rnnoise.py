@@ -5,6 +5,10 @@ from __future__ import annotations
 import logging
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from audio_transcriber.config import MasteringConfig
 
 logger = logging.getLogger(__name__)
 
@@ -18,15 +22,21 @@ DEFAULT_MODEL_CANDIDATES = [
 class RNNoiseDenoiser:
     """FFmpeg の arnndn フィルタ（RNNoise）を用いた低遅延・軽量ノイズ除去エンジン。"""
 
-    def __init__(self, model_path: Path | str | None = None) -> None:
+    def __init__(
+        self,
+        model_path: Path | str | None = None,
+        mastering_config: MasteringConfig | None = None,
+    ) -> None:
         """RNNoiseDenoiser を初期化します。
 
         Args:
             model_path: RNNoise モデルファイル (.rnnn) のパス。
+            mastering_config: マスタリング処理の設定。
         """
         self.model_path: Path | None = (
             Path(model_path).resolve() if model_path is not None else None
         )
+        self.mastering_config = mastering_config
 
     @staticmethod
     def _find_default_model() -> Path | None:
@@ -66,8 +76,10 @@ class RNNoiseDenoiser:
         else:
             resolved_model = self._find_default_model()
 
+        filter_parts = ["aresample=48000"]
+
         if resolved_model is not None and resolved_model.is_file():
-            filter_str = f"aresample=48000,arnndn=m={resolved_model}"
+            filter_parts.append(f"arnndn=m={resolved_model}")
             logger.info(
                 "RNNoise (FFmpeg arnndn: %s) でノイズ除去を開始: %s -> %s",
                 resolved_model.name,
@@ -78,7 +90,22 @@ class RNNoiseDenoiser:
             logger.warning(
                 "RNNoise モデルファイルが見つかりません。ノイズ除去をバイパスして 48kHz 変換のみ行います。"
             )
-            filter_str = "aresample=48000"
+
+        if self.mastering_config is not None and self.mastering_config.enabled:
+            m = self.mastering_config
+            # Noise gate (compand) -> 1st limiter -> loudnorm -> final limiter
+            gate_db = -100 * (1.0 - m.noise_gate_threshold)
+            compand_str = f"compand=attacks=0:decays=0.1:points=-80/-80|{gate_db}/-80|{gate_db + 1}/{gate_db + 1}|0/0"
+            filter_parts.append(compand_str)
+            filter_parts.append("alimiter=level_in=1:level_out=1:limit=-1.0")
+            filter_parts.append(
+                f"loudnorm=I={m.loudness_i}:TP={m.loudness_tp}:LRA={m.loudness_lra}"
+            )
+            filter_parts.append(
+                f"alimiter=level_in=1:level_out=1:limit={m.final_limit_db}"
+            )
+
+        filter_str = ",".join(filter_parts)
 
         cmd = [
             "ffmpeg",
