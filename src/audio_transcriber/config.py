@@ -110,8 +110,6 @@ class PostProcessConfig:
     """テキスト後処理およびサニタイズ設定。"""
 
     replace_terms: bool = True
-    normalize_nums: bool = True
-    to_hankaku: bool = False
     lower: bool = False
     remove_punct: bool = False
     no_speech_threshold: float = 0.6
@@ -269,8 +267,6 @@ def parse_config_dict(data: dict[str, Any]) -> AppConfig:
     )
     post_process = PostProcessConfig(
         replace_terms=bool(_get_val(post_d, "replace_terms", default=True)),
-        normalize_nums=bool(_get_val(post_d, "normalize_nums", default=True)),
-        to_hankaku=bool(_get_val(post_d, "to_hankaku", default=False)),
         lower=bool(_get_val(post_d, "lower", default=False)),
         remove_punct=bool(_get_val(post_d, "remove_punct", default=False)),
         no_speech_threshold=float(_get_val(post_d, "no_speech_threshold", default=0.6)),

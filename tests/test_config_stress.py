@@ -227,8 +227,6 @@ def test_all_boolean_flags_true_and_false() -> None:
             },
             "post_process": {
                 "replace_terms": True,
-                "normalize_nums": True,
-                "to_hankaku": True,
                 "lower": True,
                 "remove_punct": True,
             },
@@ -239,11 +237,9 @@ def test_all_boolean_flags_true_and_false() -> None:
     assert cfg_true.transcribe.vad.vad_filter is True
     assert (
         cfg_true.post_process.replace_terms,
-        cfg_true.post_process.normalize_nums,
-        cfg_true.post_process.to_hankaku,
         cfg_true.post_process.lower,
         cfg_true.post_process.remove_punct,
-    ) == (True, True, True, True, True)
+    ) == (True, True, True)
 
     # Test False
     cfg_false = parse_config_dict(
@@ -255,8 +251,6 @@ def test_all_boolean_flags_true_and_false() -> None:
             },
             "post_process": {
                 "replace_terms": False,
-                "normalize_nums": False,
-                "to_hankaku": False,
                 "lower": False,
                 "remove_punct": False,
             },
@@ -267,11 +261,9 @@ def test_all_boolean_flags_true_and_false() -> None:
     assert cfg_false.transcribe.vad.vad_filter is False
     assert (
         cfg_false.post_process.replace_terms,
-        cfg_false.post_process.normalize_nums,
-        cfg_false.post_process.to_hankaku,
         cfg_false.post_process.lower,
         cfg_false.post_process.remove_punct,
-    ) == (False, False, False, False, False)
+    ) == (False, False, False)
 
 
 def test_boolean_flags_from_integers() -> None:
@@ -285,8 +277,6 @@ def test_boolean_flags_from_integers() -> None:
             },
             "post_process": {
                 "replace_terms": 0,
-                "normalize_nums": 0,
-                "to_hankaku": 1,
                 "lower": 1,
                 "remove_punct": 1,
             },
@@ -297,11 +287,9 @@ def test_boolean_flags_from_integers() -> None:
     assert cfg.transcribe.vad.vad_filter is False
     assert (
         cfg.post_process.replace_terms,
-        cfg.post_process.normalize_nums,
-        cfg.post_process.to_hankaku,
         cfg.post_process.lower,
         cfg.post_process.remove_punct,
-    ) == (False, False, True, True, True)
+    ) == (False, True, True)
 
 
 # ==============================================================================

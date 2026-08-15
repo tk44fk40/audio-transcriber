@@ -8,12 +8,10 @@ import json
 import logging
 import re
 import tomllib
-import unicodedata
 from pathlib import Path
 from typing import Any
 
 from audio_transcriber.models import SubtitleSegment
-from audio_transcriber.number_normalizer import NumberNormalizer
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +22,6 @@ class TextPostProcessor:
     def __init__(
         self,
         dictionary_path: Path | None = None,
-        to_hankaku: bool = False,
-        normalize_nums: bool = True,
         lower: bool = False,
         remove_punct: bool = False,
     ) -> None:
@@ -33,13 +29,9 @@ class TextPostProcessor:
 
         Args:
             dictionary_path (Path | None): 置換辞書ファイルのパス (.toml / .yaml / .json)。
-            to_hankaku (bool): 全角英数・全角記号を半角に変換するか (デフォルト: False)。
-            normalize_nums (bool): 数字正規化を行うか (デフォルト: True)。
             lower (bool): 英小文字化を行うか (デフォルト: False)。
             remove_punct (bool): 句読点・記号・余白の除去を行うか (デフォルト: False)。
         """
-        self.to_hankaku = to_hankaku
-        self.normalize_nums = normalize_nums
         self.lower = lower
         self.remove_punct = remove_punct
 
@@ -115,12 +107,6 @@ class TextPostProcessor:
             return text
 
         result = text
-
-        if self.normalize_nums:
-            result = NumberNormalizer.normalize(result)
-
-        if self.to_hankaku:
-            result = unicodedata.normalize("NFKC", result)
 
         if self.remove_punct:
             result = re.sub(r"[、。！？!?\s\r\n]", "", result)

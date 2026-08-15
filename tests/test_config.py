@@ -50,12 +50,8 @@ def test_default_config_instances() -> None:
     )
 
     # Assert - PostProcessConfig defaults
-    assert (post_cfg.replace_terms, post_cfg.normalize_nums) == (True, True)
-    assert (post_cfg.to_hankaku, post_cfg.lower, post_cfg.remove_punct) == (
-        False,
-        False,
-        False,
-    )
+    assert post_cfg.replace_terms is True
+    assert (post_cfg.lower, post_cfg.remove_punct) == (False, False)
     assert (post_cfg.no_speech_threshold, post_cfg.max_chars_per_second) == (0.6, 12.0)
 
     # Assert - SubtitleConfig defaults
@@ -140,8 +136,6 @@ def test_load_config_full_custom_toml(tmp_path: Path) -> None:
 
     [post_process]
     REPLACE_TERMS = false
-    NORMALIZE_NUMS = false
-    TO_HANKAKU = true
     LOWER = true
     REMOVE_PUNCT = true
     NO_SPEECH_THRESHOLD = 0.7
@@ -192,11 +186,7 @@ def test_load_config_full_custom_toml(tmp_path: Path) -> None:
         cfg.transcribe.vad.min_silence_duration_ms,
         cfg.transcribe.vad.vad_threshold,
     ) == (False, 800, 0.4)
-    assert (
-        cfg.post_process.replace_terms,
-        cfg.post_process.normalize_nums,
-        cfg.post_process.to_hankaku,
-    ) == (False, False, True)
+    assert cfg.post_process.replace_terms is False
     assert (cfg.post_process.lower, cfg.post_process.remove_punct) == (True, True)
     assert (
         cfg.post_process.no_speech_threshold,
@@ -238,7 +228,7 @@ def test_load_config_partial_fallback(tmp_path: Path) -> None:
 
     # Assert
     assert cfg.output_dir == Path("./custom_out")
-    assert (cfg.post_process.to_hankaku, cfg.post_process.replace_terms) == (True, True)
+    assert cfg.post_process.replace_terms is True
     assert (cfg.subtitle.min_gap, cfg.subtitle.end_padding) == (0.2, 1.0)
     assert (cfg.model.model_size, cfg.transcribe.language) == ("small", "ja")
 
@@ -253,7 +243,6 @@ def test_load_config_case_insensitivity_and_aliases(tmp_path: Path) -> None:
 
     [postprocess]
     replace_terms = false
-    to_hankaku = true
 
     [subtitles]
     end_padding = 0.5
@@ -270,7 +259,7 @@ def test_load_config_case_insensitivity_and_aliases(tmp_path: Path) -> None:
     assert cfg.custom_dict_path == Path("data/alias_dict.toml")
     assert cfg.paths.custom_dict_path == Path("data/alias_dict.toml")
     assert cfg.post_process.replace_terms is False
-    assert (cfg.post_process.to_hankaku, cfg.subtitle.end_padding) == (True, 0.5)
+    assert cfg.subtitle.end_padding == 0.5
     assert cfg.subtitle.formats == ["srt", "vtt"]
 
 
@@ -289,9 +278,7 @@ def test_max_segment_chars_absent_and_ignored(tmp_path: Path) -> None:
     post_cfg = PostProcessConfig()
     field_names = [f.name for f in dataclasses.fields(PostProcessConfig)]
     config_file = tmp_path / "legacy_config.toml"
-    config_file.write_text(
-        "[post_process]\nMAX_SEGMENT_CHARS = 25\nTO_HANKAKU = true\n"
-    )
+    config_file.write_text("[post_process]\nMAX_SEGMENT_CHARS = 25\n")
 
     # Act
     cfg = load_config(config_file)
@@ -300,7 +287,6 @@ def test_max_segment_chars_absent_and_ignored(tmp_path: Path) -> None:
     assert "max_segment_chars" not in field_names
     assert not hasattr(post_cfg, "max_segment_chars")
     assert not hasattr(cfg.post_process, "max_segment_chars")
-    assert cfg.post_process.to_hankaku is True
 
 
 def test_load_config_default_file_in_cwd(

@@ -104,12 +104,6 @@ VAD_THRESHOLD = 0.5
 # カスタム辞書による用語置換を行うか
 REPLACE_TERMS = true
 
-# 全角英数字を半角に統一するか (NFKC正規化)
-TO_HANKAKU = false
-
-# 漢数字等をアラビア数字に正規化するか
-NORMALIZE_NUMS = true
-
 # 英字を小文字化するか
 LOWER = false
 

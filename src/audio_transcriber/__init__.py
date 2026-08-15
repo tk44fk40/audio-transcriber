@@ -16,7 +16,6 @@ from audio_transcriber.media import (
     remux_video,
 )
 from audio_transcriber.models import SubtitleSegment
-from audio_transcriber.number_normalizer import NumberNormalizer
 from audio_transcriber.pipeline import PipelineResult, run_pipeline
 from audio_transcriber.postprocess import TextPostProcessor
 from audio_transcriber.sanitizer import SegmentSanitizer
@@ -27,7 +26,6 @@ __all__ = [
     "AudioDenoiser",
     "AudioTrackInfo",
     "DenoiseConfig",
-    "NumberNormalizer",
     "PassThroughDenoiser",
     "PipelineResult",
     "RNNoiseDenoiser",

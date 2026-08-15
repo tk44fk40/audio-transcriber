@@ -41,7 +41,6 @@ def test_config_legacy_toml_with_max_segment_chars_ignored() -> None:
         "MAX_SEGMENT_CHARS": 30,
         "POST_PROCESS": {
             "MAX_SEGMENT_CHARS": 30,
-            "POST_PROCESS_NORMALIZE_NUMS": True,
         },
     }
 
@@ -51,7 +50,6 @@ def test_config_legacy_toml_with_max_segment_chars_ignored() -> None:
     # Assert
     assert not hasattr(cfg, "max_segment_chars")
     assert not hasattr(cfg.post_process, "max_segment_chars")
-    assert cfg.post_process.normalize_nums is True
 
 
 def test_config_post_process_parameters_parsing() -> None:
@@ -63,8 +61,6 @@ def test_config_post_process_parameters_parsing() -> None:
         },
         "POST_PROCESS": {
             "REPLACE_TERMS": False,
-            "NORMALIZE_NUMS": True,
-            "TO_HANKAKU": True,
             "LOWER": True,
             "REMOVE_PUNCT": True,
             "NO_SPEECH_THRESHOLD": 0.75,
@@ -80,8 +76,6 @@ def test_config_post_process_parameters_parsing() -> None:
     assert cfg.paths.custom_dict_path == Path("/path/to/custom_dict.toml")
     assert cfg.custom_dict_path == Path("/path/to/custom_dict.toml")
     assert post_cfg.replace_terms is False
-    assert post_cfg.normalize_nums is True
-    assert post_cfg.to_hankaku is True
     assert post_cfg.lower is True
     assert post_cfg.remove_punct is True
     assert post_cfg.no_speech_threshold == 0.75

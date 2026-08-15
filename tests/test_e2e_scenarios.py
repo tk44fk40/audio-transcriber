@@ -126,7 +126,7 @@ def test_scenario_2_technical_keynote_transcribe_only(
     # Assert
     assert result.denoised_audio is None
     assert result.srt_file == out_dir / "ai_keynote.srt"
-    assert "第８章" in str(result.transcript_text)
+    assert "第VIII章" in str(result.transcript_text)
     transcriber.transcribe_file.assert_called_once()
     assert transcriber.kwargs["model_size"] == "large-v3"
     assert "第VIII章" in transcriber.kwargs["initial_prompt"]

@@ -222,8 +222,6 @@ def run_pipeline(
         dict_path = cfg.paths.custom_dict_path
         processor = TextPostProcessor(
             dictionary_path=dict_path if pp_cfg.replace_terms else None,
-            to_hankaku=pp_cfg.to_hankaku,
-            normalize_nums=pp_cfg.normalize_nums,
             lower=pp_cfg.lower,
             remove_punct=pp_cfg.remove_punct,
         )

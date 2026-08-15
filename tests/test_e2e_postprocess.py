@@ -24,7 +24,7 @@ def test_post_processor_load_dictionary_toml(tmp_path: Path) -> None:
     )
 
     # Act
-    processor = TextPostProcessor(dictionary_path=toml_file, normalize_nums=False)
+    processor = TextPostProcessor(dictionary_path=toml_file)
 
     # Assert
     assert processor.dictionary == {
@@ -46,8 +46,8 @@ def test_post_processor_load_dictionary_json_and_yaml(tmp_path: Path) -> None:
     yaml_file.write_text("GPU: グラフィックボード\nCPU: プロセッサ\n", encoding="utf-8")
 
     # Act
-    proc_json = TextPostProcessor(dictionary_path=json_file, normalize_nums=False)
-    proc_yaml = TextPostProcessor(dictionary_path=yaml_file, normalize_nums=False)
+    proc_json = TextPostProcessor(dictionary_path=json_file)
+    proc_yaml = TextPostProcessor(dictionary_path=yaml_file)
 
     # Assert
     assert proc_json.dictionary == {"AI": "人工知能", "ML": "機械学習"}
@@ -64,7 +64,7 @@ def test_post_processor_longest_first_replacement(tmp_path: Path) -> None:
         json.dumps({"AI": "人工知能", "AIツール": "AI支援ツール"}),
         encoding="utf-8",
     )
-    processor = TextPostProcessor(dictionary_path=dict_file, normalize_nums=False)
+    processor = TextPostProcessor(dictionary_path=dict_file)
 
     # Act
     result = processor.apply_to_text("最新のAIツールを活用するAI")
@@ -75,11 +75,9 @@ def test_post_processor_longest_first_replacement(tmp_path: Path) -> None:
 
 @pytest.mark.e2e
 def test_post_processor_normalization_flags_combined() -> None:
-    """数字正規化、NFKC半角化、小文字化、句読点削除フラグの複合動作テスト (Tier 1)。"""
+    """小文字化、句読点削除フラグの複合動作テスト (Tier 1)。"""
     # Arrange
     processor = TextPostProcessor(
-        normalize_nums=True,  # 漢数字 -> 全角数字
-        to_hankaku=True,  # 全角英数記号 -> 半角 (NFKC)
         lower=True,  # 英字小文字化
         remove_punct=True,  # 句読点・空白除去
     )
@@ -89,7 +87,7 @@ def test_post_processor_normalization_flags_combined() -> None:
     result = processor.apply_to_text(raw)
 
     # Assert
-    # 第I章 -> 第1章 (NFKCで半角), lowerで helloworld, 句読点除去
+    # lowerで helloworld, 句読点除去
     assert "helloworld" in result
     assert "、" not in result and "。" not in result and " " not in result
 
@@ -100,7 +98,7 @@ def test_post_processor_apply_to_segments(tmp_path: Path) -> None:
     # Arrange
     dict_file = tmp_path / "dict.json"
     dict_file.write_text(json.dumps({"Whisper": "ウィスパー"}), encoding="utf-8")
-    processor = TextPostProcessor(dictionary_path=dict_file, normalize_nums=False)
+    processor = TextPostProcessor(dictionary_path=dict_file)
 
     segments = [
         SubtitleSegment(start=1.0, end=3.0, text="Whisperの性能"),
@@ -143,8 +141,8 @@ def test_post_processor_dictionary_invalid_structure(tmp_path: Path) -> None:
 def test_post_processor_whitespace_and_newline_handling() -> None:
     """改行・連続空白の正規化挙動テスト (Tier 2)。"""
     # Arrange
-    proc_keep_punct = TextPostProcessor(remove_punct=False, normalize_nums=False)
-    proc_remove_punct = TextPostProcessor(remove_punct=True, normalize_nums=False)
+    proc_keep_punct = TextPostProcessor(remove_punct=False)
+    proc_remove_punct = TextPostProcessor(remove_punct=True)
 
     raw_text = "こんにちは。\r\n\r\n世界! \t テスト"
 

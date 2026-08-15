@@ -20,7 +20,6 @@ class TestTextPostProcessorInit:
         """デフォルト引数で初期化できること。"""
         processor = TextPostProcessor()
         assert processor.dictionary == {}
-        assert processor.normalize_nums is True
 
     def test_dictionary_loaded_from_json(self, tmp_path: Path) -> None:
         """JSON 辞書ファイルを読み込めること。"""
@@ -76,18 +75,6 @@ class TestTextPostProcessorApplyToText:
         )
         result = processor.apply_to_text("abc")
         assert result == "LONG"
-
-    def test_normalize_nums_applied(self) -> None:
-        """数字正規化が適用されること（全角数字で出力）。"""
-        processor = TextPostProcessor(normalize_nums=True)
-        result = processor.apply_to_text("第三回")
-        assert "３" in result
-
-    def test_to_hankaku_applied(self) -> None:
-        """全角英数の半角変換が適用されること。"""
-        processor = TextPostProcessor(to_hankaku=True)
-        result = processor.apply_to_text("ＡＢＣ")
-        assert result == "ABC"
 
     def test_lower_applied(self) -> None:
         """英字小文字化が適用されること。"""
