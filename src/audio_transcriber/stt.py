@@ -78,10 +78,14 @@ class VadProgressHandler(logging.Handler):
             import re
 
             pattern = re.compile(r"([\d\.]+)s\s*-\s*([\d\.]+)s")
-            vad_chunks = [
-                (float(m.group(1)), float(m.group(2)))
-                for m in pattern.finditer(chunks_str)
-            ]
+            vad_chunks = []
+            for m in pattern.finditer(chunks_str):
+                start = float(m.group(1))
+                end = float(m.group(2))
+                if start > 10000 or end > 10000:
+                    start /= 16000.0
+                    end /= 16000.0
+                vad_chunks.append((start, end))
 
             self.on_progress("vad_chunks", vad_chunks)
 
@@ -176,7 +180,8 @@ class FasterWhisperProvider:
                 vad_opts = VadOptions(**(self.vad_parameters or {}))
                 clip_timestamps = get_speech_timestamps(audio_arr, vad_opts)
                 vad_chunks = [
-                    (float(c["start"]), float(c["end"])) for c in clip_timestamps
+                    (float(c["start"]) / 16000.0, float(c["end"]) / 16000.0)
+                    for c in clip_timestamps
                 ]
                 on_progress("vad_chunks", vad_chunks)
             except Exception as e:

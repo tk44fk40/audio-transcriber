@@ -61,6 +61,30 @@ uv run audio-transcriber /path/to/mic_audio.wav -o ./output
 | `--loudness-tp` | | `-2.0` | トゥルーピークリミット (dBTP) |
 | `--loudness-lra` | | `11.0` | ラウドネスレンジ (LU) |
 | `--final-limit-db` | | `-2.0` | 最終ハードリミッター上限 (dB) |
+| `--debug-output-dir` | | なし | デバッグ用出力ディレクトリ |
+| `--custom-dict-path` | | なし | カスタム辞書のパス |
+| `--denoise-engine` | | `rnnoise` | ノイズ除去エンジン |
+| `--denoise-model-path` | | なし | カスタムノイズ除去モデルパス |
+| `--media-sample-rate` | | `48000` | 抽出・処理時のサンプリングレート |
+| `--beam-size` | | `5` | Whisperビームサーチ幅 |
+| `--condition-on-previous-text / --no-condition-on-previous-text` | | `True` | Whisper直前文脈への依存 |
+| `--transcribe-no-speech-threshold` | | `0.6` | Whisper無音判定閾値 |
+| `--vad-threshold` | | `0.5` | VAD検出閾値 |
+| `--replace-terms / --no-replace-terms` | | `True` | カスタム辞書による用語置換 |
+| `--lower / --no-lower` | | `False` | 英字の小文字化 |
+| `--remove-punct / --no-remove-punct` | | `False` | 句読点等の記号削除 |
+| `--pp-no-speech-threshold` | | `0.6` | 後処理の無音確率閾値 |
+| `--max-chars-per-second` | | `12.0` | 後処理の上限文字数/秒 |
+| `--end-padding` | | `1.0` | 字幕の発話終了後の余韻表示秒数 |
+| `--min-duration` | | `1.5` | 字幕の最小表示秒数 |
+| `--min-gap` | | `0.05` | 字幕間の最小隙間秒数 |
+| `--subtitle-formats` | | `srt,vtt,json` | 出力字幕フォーマットリスト |
+| `--chunk-size-ms` | | `100` | ストリーミングチャンクのサイズ (ms) |
+| `--buffer-size-seconds` | | `10.0` | バッファの最大保持秒数 |
+| `--stream-sample-rate` | | `16000` | ストリーミングサンプリングレート (Hz) |
+| `--flush-timeout-ms` | | `1000` | バッファフラッシュタイムアウト (ms) |
+| `--word-gap-split-threshold` | | `1.0` | 単語ギャップによるセグメント強制分割秒数 |
+| `--streaming-log / --no-streaming-log` | | `False` | リアルタイムログ出力モード |
 
 ### 3. 設定ファイル (`config.toml`) によるカスタマイズ
 
@@ -104,6 +128,27 @@ loudness_lra = 11.0
 final_limit_db = -2.0
 ```
 
+
+### 💻 ライブラリとしての組み込み利用 (API)
+
+本プロジェクトは Python ライブラリとして他のスクリプトからインポートして利用することも可能です。
+設定のロードには `load_config()` 関数を利用でき、**任意の場所に配置した TOML ファイル** を読み込ませることが可能です。
+
+```python
+from audio_transcriber.config import load_config
+from audio_transcriber.pipeline import run_pipeline
+
+# 任意のパスにあるカスタムTOMLファイルを読み込む
+# （引数なしの場合はカレントディレクトリの config.toml が自動で使われます）
+cfg = load_config("/path/to/my_custom_settings.toml")
+
+# コード上で動的に一部の設定だけ上書きすることも可能
+cfg.model.model_size = "large-v3-turbo"
+cfg.stream.streaming_log = True
+
+# パイプラインを実行
+result = run_pipeline(input_path="my_video.mp4", cfg=cfg, denoise=True, transcribe=True)
+```
 
 ### 開発・品質チェック
 

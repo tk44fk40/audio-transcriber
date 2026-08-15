@@ -162,6 +162,8 @@ class StreamConfig:
     buffer_size_seconds: float = 10.0
     sample_rate: int = 16000
     flush_timeout_ms: int = 1000
+    word_gap_split_threshold: float = 1.0
+    streaming_log: bool = False
 
 
 @dataclass
@@ -331,6 +333,10 @@ def parse_config_dict(data: dict[str, Any]) -> AppConfig:
         ),
         sample_rate=int(_get_val(stream_d, "sample_rate", default=16000)),
         flush_timeout_ms=int(_get_val(stream_d, "flush_timeout_ms", default=1000)),
+        word_gap_split_threshold=float(
+            _get_val(stream_d, "word_gap_split_threshold", default=1.0)
+        ),
+        streaming_log=bool(_get_val(stream_d, "streaming_log", default=False)),
     )
 
     # Mastering

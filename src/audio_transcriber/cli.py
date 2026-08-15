@@ -183,6 +183,174 @@ def main(
             help="Final hard limiter dB.",
         ),
     ] = None,
+    debug_output_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--debug-output-dir",
+            help="Debug output directory.",
+        ),
+    ] = None,
+    custom_dict_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--custom-dict-path",
+            help="Custom dictionary path.",
+        ),
+    ] = None,
+    denoise_engine: Annotated[
+        str | None,
+        typer.Option(
+            "--denoise-engine",
+            help="Denoise engine (rnnoise etc.).",
+        ),
+    ] = None,
+    denoise_model_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--denoise-model-path",
+            help="Custom denoise model path.",
+        ),
+    ] = None,
+    media_sample_rate: Annotated[
+        int | None,
+        typer.Option(
+            "--media-sample-rate",
+            help="Media extraction sample rate.",
+        ),
+    ] = None,
+    beam_size: Annotated[
+        int | None,
+        typer.Option(
+            "--beam-size",
+            help="Whisper beam size.",
+        ),
+    ] = None,
+    condition_on_previous_text: Annotated[
+        bool | None,
+        typer.Option(
+            "--condition-on-previous-text/--no-condition-on-previous-text",
+            help="Condition on previous text for Whisper.",
+        ),
+    ] = None,
+    transcribe_no_speech_threshold: Annotated[
+        float | None,
+        typer.Option(
+            "--transcribe-no-speech-threshold",
+            help="No speech threshold for transcribe.",
+        ),
+    ] = None,
+    vad_threshold: Annotated[
+        float | None,
+        typer.Option(
+            "--vad-threshold",
+            help="VAD threshold.",
+        ),
+    ] = None,
+    replace_terms: Annotated[
+        bool | None,
+        typer.Option(
+            "--replace-terms/--no-replace-terms",
+            help="Enable term replacement.",
+        ),
+    ] = None,
+    lower: Annotated[
+        bool | None,
+        typer.Option(
+            "--lower/--no-lower",
+            help="Lowercase text.",
+        ),
+    ] = None,
+    remove_punct: Annotated[
+        bool | None,
+        typer.Option(
+            "--remove-punct/--no-remove-punct",
+            help="Remove punctuation.",
+        ),
+    ] = None,
+    pp_no_speech_threshold: Annotated[
+        float | None,
+        typer.Option(
+            "--pp-no-speech-threshold",
+            help="Post-process no speech threshold.",
+        ),
+    ] = None,
+    max_chars_per_second: Annotated[
+        float | None,
+        typer.Option(
+            "--max-chars-per-second",
+            help="Max chars per second.",
+        ),
+    ] = None,
+    end_padding: Annotated[
+        float | None,
+        typer.Option(
+            "--end-padding",
+            help="Subtitle end padding.",
+        ),
+    ] = None,
+    min_duration: Annotated[
+        float | None,
+        typer.Option(
+            "--min-duration",
+            help="Subtitle min duration.",
+        ),
+    ] = None,
+    min_gap: Annotated[
+        float | None,
+        typer.Option(
+            "--min-gap",
+            help="Subtitle min gap.",
+        ),
+    ] = None,
+    subtitle_formats: Annotated[
+        str | None,
+        typer.Option(
+            "--subtitle-formats",
+            help="Comma-separated subtitle formats (srt,vtt,json).",
+        ),
+    ] = None,
+    chunk_size_ms: Annotated[
+        int | None,
+        typer.Option(
+            "--chunk-size-ms",
+            help="Streaming chunk size in ms.",
+        ),
+    ] = None,
+    buffer_size_seconds: Annotated[
+        float | None,
+        typer.Option(
+            "--buffer-size-seconds",
+            help="Streaming buffer size in seconds.",
+        ),
+    ] = None,
+    stream_sample_rate: Annotated[
+        int | None,
+        typer.Option(
+            "--stream-sample-rate",
+            help="Streaming sample rate in Hz.",
+        ),
+    ] = None,
+    flush_timeout_ms: Annotated[
+        int | None,
+        typer.Option(
+            "--flush-timeout-ms",
+            help="Flush timeout in ms for streaming.",
+        ),
+    ] = None,
+    word_gap_split_threshold: Annotated[
+        float | None,
+        typer.Option(
+            "--word-gap-split-threshold",
+            help="Word gap split threshold in seconds.",
+        ),
+    ] = None,
+    streaming_log: Annotated[
+        bool | None,
+        typer.Option(
+            "--streaming-log/--no-streaming-log",
+            help="Enable/disable real-time tree log output.",
+        ),
+    ] = None,
 ) -> None:
     """Process microphone audio: Remove keyboard/gamepad noise, generate SRT, and remux video."""
     if denoise_only and transcribe_only:
@@ -282,6 +450,56 @@ def main(
         cfg.mastering.loudness_lra = loudness_lra
     if final_limit_db is not None:
         cfg.mastering.final_limit_db = final_limit_db
+    if debug_output_dir is not None:
+        cfg.paths.debug_output_dir = debug_output_dir
+    if custom_dict_path is not None:
+        cfg.paths.custom_dict_path = custom_dict_path
+    if denoise_engine is not None:
+        cfg.denoise.engine = denoise_engine
+    if denoise_model_path is not None:
+        cfg.denoise.model_path = denoise_model_path
+    if media_sample_rate is not None:
+        cfg.media.sample_rate = media_sample_rate
+    if beam_size is not None:
+        cfg.transcribe.beam_size = beam_size
+    if condition_on_previous_text is not None:
+        cfg.transcribe.condition_on_previous_text = condition_on_previous_text
+    if transcribe_no_speech_threshold is not None:
+        cfg.transcribe.no_speech_threshold = transcribe_no_speech_threshold
+    if vad_threshold is not None:
+        cfg.transcribe.vad.vad_threshold = vad_threshold
+    if replace_terms is not None:
+        cfg.post_process.replace_terms = replace_terms
+    if lower is not None:
+        cfg.post_process.lower = lower
+    if remove_punct is not None:
+        cfg.post_process.remove_punct = remove_punct
+    if pp_no_speech_threshold is not None:
+        cfg.post_process.no_speech_threshold = pp_no_speech_threshold
+    if max_chars_per_second is not None:
+        cfg.post_process.max_chars_per_second = max_chars_per_second
+    if end_padding is not None:
+        cfg.subtitle.end_padding = end_padding
+    if min_duration is not None:
+        cfg.subtitle.min_duration = min_duration
+    if min_gap is not None:
+        cfg.subtitle.min_gap = min_gap
+    if subtitle_formats is not None:
+        cfg.subtitle.formats = [
+            f.strip().lower() for f in subtitle_formats.split(",") if f.strip()
+        ]
+    if chunk_size_ms is not None:
+        cfg.stream.chunk_size_ms = chunk_size_ms
+    if buffer_size_seconds is not None:
+        cfg.stream.buffer_size_seconds = buffer_size_seconds
+    if stream_sample_rate is not None:
+        cfg.stream.sample_rate = stream_sample_rate
+    if flush_timeout_ms is not None:
+        cfg.stream.flush_timeout_ms = flush_timeout_ms
+    if word_gap_split_threshold is not None:
+        cfg.stream.word_gap_split_threshold = word_gap_split_threshold
+    if streaming_log is not None:
+        cfg.stream.streaming_log = streaming_log
 
     status_lines = [
         "[bold cyan]Audio Transcriber[/bold cyan]",
@@ -301,18 +519,44 @@ def main(
     console.print(Panel.fit("\n".join(status_lines), border_style="cyan"))
 
     def handle_progress(stage: str, message: Any) -> None:
+        if not cfg.stream.streaming_log:
+            if stage in (
+                "vad_chunks",
+                "postprocess_dropped",
+                "postprocess_replaced",
+                "postprocess_overlap_prevented",
+            ):
+                return
+            if stage == "postprocess_start":
+                console.print(f"[bold cyan]▶ [postprocess][/bold cyan] {message}")
+            elif stage == "postprocess_summary":
+                console.print(f"  [bold white]└─ {message}[/bold white]")
+            elif stage == "vad":
+                console.print(f"[bold magenta]▶ [vad][/bold magenta] {message}")
+            else:
+                console.print(f"[bold cyan]▶ [{stage}][/bold cyan] {message}")
+            return
+
+        # Streaming log is True
         if stage == "vad_chunks":
-            return
-        if stage in (
-            "postprocess_dropped",
-            "postprocess_replaced",
-            "postprocess_overlap_prevented",
-        ):
-            return
-        if stage == "postprocess_start":
-            console.print(f"[bold cyan]▶ [postprocess][/bold cyan] {message}")
+            # 事前にまとめて渡される VADチャンクリストはここでは出力せず無視する
+            pass
+        elif stage == "vad_chunk_start":
+            v_start, v_end = message
+            dur = max(0.0, v_end - v_start)
+            console.print(
+                f"\n[bold magenta][VAD][/bold magenta] {SubtitleExporter.format_timestamp(v_start)} --> {SubtitleExporter.format_timestamp(v_end)} ({dur:.2f}s)"
+            )
+        elif stage == "postprocess_dropped":
+            console.print(f"  [yellow][無音捏造等除外][/yellow] {message}")
+        elif stage == "postprocess_replaced":
+            console.print(f"  [green][テキスト置換][/green] {message}")
+        elif stage == "postprocess_overlap_prevented":
+            console.print(f"  [magenta][重複防止][/magenta] {message}")
+        elif stage == "postprocess_start":
+            console.print(f"\n[bold cyan]▶ [postprocess][/bold cyan] {message}")
         elif stage == "postprocess_summary":
-            console.print(f"  [bold white]└─ {message}[/bold white]")
+            console.print(f"[bold white]└─ {message}[/bold white]\n")
         elif stage == "vad":
             console.print(f"[bold magenta]▶ [vad][/bold magenta] {message}")
         else:
@@ -325,9 +569,15 @@ def main(
         start_str = SubtitleExporter.format_timestamp(start_sec)
         end_str = SubtitleExporter.format_timestamp(end_sec)
         text = str(seg.get("text", "")).strip()
-        console.print(
-            f"  [dim cyan]{start_str} --> {end_str}[/dim cyan] [dim yellow]({duration:.1f}s)[/dim yellow] [dim white]{text}[/dim white]"
-        )
+
+        if cfg.stream.streaming_log:
+            console.print(
+                f'  [bold cyan][Whisper生][/bold cyan] {start_str} --> {end_str} ({duration:.2f}s) "{text}"'
+            )
+        else:
+            console.print(
+                f"  [dim cyan]{start_str} --> {end_str}[/dim cyan] [dim yellow]({duration:.1f}s)[/dim yellow] [dim white]{text}[/dim white]"
+            )
 
     try:
         result = run_pipeline(
@@ -341,63 +591,6 @@ def main(
     except Exception as e:
         console.print(f"[bold red]Pipeline failed:[/bold red] {e}")
         raise typer.Exit(code=1) from e
-
-    if not result.vad_chunks and result.raw_segments:
-        start_time = float(result.raw_segments[0].get("start", 0.0))
-        end_time = float(result.raw_segments[-1].get("end", 0.0))
-        result.vad_chunks = [(start_time, end_time)]
-
-    if result.vad_chunks:
-        console.print("\n[bold cyan]Transcription Log[/bold cyan]")
-        events_by_start = {}
-        for ev in result.processing_events:
-            start_rounded = round(float(ev["start"]), 3)
-            if start_rounded not in events_by_start:
-                events_by_start[start_rounded] = []
-            events_by_start[start_rounded].append(ev)
-
-        segments_by_vad = {i: [] for i in range(len(result.vad_chunks))}
-        for raw in result.raw_segments:
-            r_start = float(raw.get("start", 0.0))
-            matched = False
-            for i, (v_start, v_end) in enumerate(result.vad_chunks):
-                if v_start - 0.5 <= r_start <= v_end + 0.5:
-                    segments_by_vad[i].append(raw)
-                    matched = True
-                    break
-            if not matched and result.vad_chunks:
-                segments_by_vad[len(result.vad_chunks) - 1].append(raw)
-
-        for i, (v_start, v_end) in enumerate(result.vad_chunks):
-            segs = segments_by_vad[i]
-            if not segs:
-                continue
-            dur = max(0.0, v_end - v_start)
-            console.print(
-                f"\n[bold magenta][VAD][/bold magenta] {SubtitleExporter.format_timestamp(v_start)} --> {SubtitleExporter.format_timestamp(v_end)} ({dur:.2f}s)"
-            )
-
-            for raw in segs:
-                r_start = float(raw.get("start", 0.0))
-                r_end = float(raw.get("end", 0.0))
-                r_dur = max(0.0, r_end - r_start)
-                r_text = raw.get("text", "").strip()
-                console.print(
-                    f'  [bold cyan][Whisper生][/bold cyan] {SubtitleExporter.format_timestamp(r_start)} --> {SubtitleExporter.format_timestamp(r_end)} ({r_dur:.2f}s) "{r_text}"'
-                )
-
-                key = round(r_start, 3)
-                if key in events_by_start:
-                    for ev in events_by_start[key]:
-                        ev_type = ev["type"]
-                        ev_msg = ev["message"]
-                        if ev_type == "無音捏造等除外":
-                            console.print(f"  [yellow][{ev_type}][/yellow] {ev_msg}")
-                        elif ev_type == "テキスト置換":
-                            console.print(f"  [green][{ev_type}][/green] {ev_msg}")
-                        elif ev_type == "重複防止":
-                            console.print(f"  [magenta][{ev_type}][/magenta] {ev_msg}")
-        console.print("")
 
     table = Table(title="Generated Outputs", border_style="green")
     table.add_column("Type", style="cyan")

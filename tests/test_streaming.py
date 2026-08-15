@@ -1,7 +1,7 @@
 """テスト: ストリーミングパイプライン"""
 
 import asyncio
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -144,3 +144,68 @@ async def test_audio_stream_pipeline_error_handling(mock_transcriber):
     # on_error が発火したか確認
     assert len(callbacks.errors) > 0
     assert isinstance(callbacks.errors[0], Exception)
+
+
+@pytest.mark.anyio
+async def test_audio_stream_pipeline_feed_chunk_not_running(mock_transcriber):
+    pipeline = AudioStreamPipeline(transcriber=mock_transcriber)
+    # feed_chunk returns early when not running (line 61)
+    await pipeline.feed_chunk(b"data")
+    assert pipeline._queue.empty()
+
+
+@pytest.mark.anyio
+async def test_audio_stream_pipeline_reset_queue(mock_transcriber):
+    pipeline = AudioStreamPipeline(transcriber=mock_transcriber)
+    pipeline._is_running = True
+    await pipeline.feed_chunk(b"data1")
+    await pipeline.feed_chunk(b"data2")
+    assert pipeline._queue.qsize() == 2
+
+    # reset should clear the queue (lines 69-73)
+    await pipeline.reset()
+    assert pipeline._queue.empty()
+
+    # Cover QueueEmpty branch
+    pipeline._queue.put_nowait(b"dummy")
+    with patch.object(pipeline._queue, "get_nowait", side_effect=asyncio.QueueEmpty):
+        await pipeline.reset()
+
+
+@pytest.mark.anyio
+async def test_audio_stream_pipeline_process_loop_exceptions(mock_transcriber):
+    callbacks = MockCallbacks()
+    pipeline = AudioStreamPipeline(transcriber=mock_transcriber, callbacks=callbacks)
+
+    # Test CancelledError (line 92-93)
+    pipeline._is_running = True
+    pipeline._loop_task = asyncio.create_task(pipeline._process_loop())
+
+    # Let the task start waiting on the queue
+    await asyncio.sleep(0.01)
+
+    # Cancel the task
+    pipeline._loop_task.cancel()
+    try:
+        await pipeline._loop_task
+    except asyncio.CancelledError:
+        pass
+    # No error should be reported for CancelledError
+    assert len(callbacks.errors) == 0
+
+    # Test Exception in _process_loop (line 94-95)
+    # We can trigger an exception in _process_loop by making _queue.get raise an error
+    pipeline._loop_task = asyncio.create_task(pipeline._process_loop())
+    # Mock queue.get to raise Exception
+
+    class RaisingQueue(asyncio.Queue):
+        async def get(self):
+            raise RuntimeError("Unexpected error")
+
+    pipeline._queue = RaisingQueue()
+
+    # Wait for loop to pick it up and crash
+    await asyncio.sleep(0.01)
+
+    assert len(callbacks.errors) > 0
+    assert str(callbacks.errors[0]) == "Unexpected error"

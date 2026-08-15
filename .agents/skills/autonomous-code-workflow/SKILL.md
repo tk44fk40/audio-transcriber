@@ -31,13 +31,13 @@ description: audio-transcriber の開発ルール (.agents/AGENTS.md) に準拠�
 
 ### Step 4: ローカル一括自動検証 (`pre-commit`)
 ユーザーへ提示前に `pre-commit` を実行し、全自動検証（Ruff check/format, basedpyright, pytest + カバレッジ）でエラー 0 件を実証：
-- **一括検証コマンド**: `uv run pre-commit run --all-files`
+- **一括検証コマンド**: `uv run pre-commit run --all-files -v`
 - **テスト・検証の使い分け方針**:
   - **TDDサイクル / 局所デバッグ時**: 高速にイテレーションを回すため、対象テストのみを個別実行（例: `uv run pytest -v --no-header tests/test_xxx.py`）。
-  - **コミット前 / 全体検証時**: `uv run pre-commit run --all-files` を実行し、静的解析・型チェック・全件テスト・カバレッジ出力を一括で網羅・検証する。
+  - **コミット前 / 全体検証時**: `uv run pre-commit run --all-files -v` を実行し、静的解析・型チェック・全件テスト・カバレッジ出力を一括で網羅・検証する。
 
 ### Step 5: セルフチェック ＆ エビデンスログ提示
-コードの作成・修正後に以下の観点でセルフチェックを実施。チェックにパスするまで自律的に再修正し、結果とテストログを報告：
+コードの作成・修正後に以下の観点でセルフチェックを実施。チェックにパスするまで自律的に再修正し、結果を根拠と共に報告：
 - **セルフチェック観点**:
   1. 開発ルール適合性
   2. 要件適合性

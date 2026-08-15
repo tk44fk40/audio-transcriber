@@ -144,6 +144,33 @@ def test_rnnoise_denoiser_missing_input(tmp_path: Path):
         denoiser.denoise(input_wav, output_wav)
 
 
+def test_rnnoise_denoiser_no_default_model():
+    """RNNoiseDenoiser._find_default_model returns None when candidates don't exist."""
+    with patch(
+        "audio_transcriber.denoise.engines.rnnoise.DEFAULT_MODEL_CANDIDATES", []
+    ):
+        assert RNNoiseDenoiser._find_default_model() is None
+
+
+def test_rnnoise_denoiser_bypass(tmp_path: Path):
+    """RNNoiseDenoiser bypasses filter and logs warning when no model is found."""
+    input_wav = tmp_path / "input.wav"
+    output_wav = tmp_path / "output.wav"
+    input_wav.write_bytes(b"data")
+
+    denoiser = RNNoiseDenoiser()
+    with patch(
+        "audio_transcriber.denoise.engines.rnnoise.DEFAULT_MODEL_CANDIDATES", []
+    ):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            denoiser.denoise(input_wav, output_wav)
+            cmd = mock_run.call_args[0][0]
+            filter_idx = cmd.index("-af") + 1
+            assert "arnndn" not in cmd[filter_idx]
+            assert "aresample=48000" in cmd[filter_idx]
+
+
 def test_rnnoise_denoiser_missing_model(tmp_path: Path):
     """RNNoiseDenoiser raises RuntimeError when specified model does not exist."""
     input_wav = tmp_path / "input.wav"

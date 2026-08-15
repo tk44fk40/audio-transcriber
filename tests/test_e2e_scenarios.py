@@ -59,9 +59,13 @@ def test_scenario_1_gaming_commentary_multitrack(
         beam_size=base_config.transcribe.beam_size,
         initial_prompt=base_config.transcribe.initial_prompt,
     )
-    transcriber.transcribe_file = MagicMock(
-        return_value=[{"start": 1.0, "end": 2.5, "text": "ナイス!"}]
-    )
+
+    def fake_transcribe(file_path, on_segment=None, on_progress=None):
+        if on_segment:
+            on_segment({"start": 1.0, "end": 2.5, "text": "ナイス!"})
+        return []
+
+    transcriber.transcribe_file = MagicMock(side_effect=fake_transcribe)
 
     with (
         patch(
@@ -110,9 +114,13 @@ def test_scenario_2_technical_keynote_transcribe_only(
         beam_size=base_config.transcribe.beam_size,
         initial_prompt=base_config.transcribe.initial_prompt,
     )
-    transcriber.transcribe_file = MagicMock(
-        return_value=[{"start": 0.0, "end": 5.0, "text": "第VIII章の解説を行います"}]
-    )
+
+    def fake_transcribe(file_path, on_segment=None, on_progress=None):
+        if on_segment:
+            on_segment({"start": 0.0, "end": 5.0, "text": "第VIII章の解説を行います"})
+        return []
+
+    transcriber.transcribe_file = MagicMock(side_effect=fake_transcribe)
 
     # Act
     result = run_pipeline(
@@ -155,9 +163,13 @@ def test_scenario_3_conversational_turn_taking_vad(
             "min_silence_duration_ms": base_config.transcribe.vad.min_silence_duration_ms
         },
     )
-    transcriber.transcribe_file = MagicMock(
-        return_value=[{"start": 0.5, "end": 2.0, "text": "そうですね"}]
-    )
+
+    def fake_transcribe(file_path, on_segment=None, on_progress=None):
+        if on_segment:
+            on_segment({"start": 0.5, "end": 2.0, "text": "そうですね"})
+        return []
+
+    transcriber.transcribe_file = MagicMock(side_effect=fake_transcribe)
 
     # Act
     result = run_pipeline(
@@ -204,9 +216,13 @@ def test_scenario_4_high_noise_podcast_denoise_and_transcribe(
             "min_silence_duration_ms": base_config.transcribe.vad.min_silence_duration_ms
         },
     )
-    transcriber.transcribe_file = MagicMock(
-        return_value=[{"start": 1.0, "end": 4.0, "text": "本日のテーマは音声認識です"}]
-    )
+
+    def fake_transcribe(file_path, on_segment=None, on_progress=None):
+        if on_segment:
+            on_segment({"start": 1.0, "end": 4.0, "text": "本日のテーマは音声認識です"})
+        return []
+
+    transcriber.transcribe_file = MagicMock(side_effect=fake_transcribe)
 
     with patch(
         "audio_transcriber.pipeline.create_denoiser", return_value=mock_denoiser

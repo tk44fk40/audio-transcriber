@@ -46,6 +46,42 @@ class TestTextPostProcessorInit:
         with pytest.raises(FileNotFoundError):
             TextPostProcessor.load_dictionary(tmp_path / "nonexistent.json")
 
+    def test_yaml_import_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """YAMLパーサーがない場合は空の辞書が返る。"""
+        d = tmp_path / "dict.yaml"
+        d.write_text("a: b\n", encoding="utf-8")
+
+        # モックで ImportError を発生させる
+        import builtins
+
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "yaml":
+                raise ImportError("No module named yaml")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+
+        processor = TextPostProcessor(dictionary_path=d)
+        assert processor.dictionary == {}
+
+    def test_unknown_extension_fallback_to_toml(self, tmp_path: Path) -> None:
+        """不明な拡張子の場合は TOML として処理される。"""
+        d = tmp_path / "dict.txt"
+        d.write_text('[replacements]\n"未知" = "既知"\n', encoding="utf-8")
+        processor = TextPostProcessor(dictionary_path=d)
+        assert processor.dictionary.get("未知") == "既知"
+
+    def test_not_dict_raises(self, tmp_path: Path) -> None:
+        """辞書形式でない場合はValueErrorが発生する。"""
+        d = tmp_path / "dict.json"
+        d.write_text('["list", "not", "dict"]', encoding="utf-8")
+        with pytest.raises(ValueError):
+            TextPostProcessor.load_dictionary(d)
+
 
 class TestTextPostProcessorApplyToText:
     """apply_to_text メソッドのテスト。"""
@@ -54,6 +90,7 @@ class TestTextPostProcessorApplyToText:
         """空文字列はそのまま返ること。"""
         processor = TextPostProcessor()
         assert processor.apply_to_text("") == ""
+        assert processor.normalize_text("") == ""
 
     def test_dictionary_replacement_applied(self) -> None:
         """辞書置換が正しく適用されること。"""

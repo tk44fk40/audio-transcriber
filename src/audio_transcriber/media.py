@@ -211,7 +211,10 @@ def remux_video(
     # Audio codec mapping: copy existing untouched tracks, encode replacement
     for out_a_idx, in_a_idx in enumerate(range(len(tracks))):
         if in_a_idx == replace_idx:
-            cmd.extend([f"-c:a:{out_a_idx}", "aac", f"-b:a:{out_a_idx}", "320k"])
+            target_codec = tracks[replace_idx].codec_name
+            if target_codec == "unknown":
+                target_codec = "pcm_s16le"
+            cmd.extend([f"-c:a:{out_a_idx}", target_codec])
         else:
             cmd.extend([f"-c:a:{out_a_idx}", "copy"])
 

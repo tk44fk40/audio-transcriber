@@ -148,7 +148,7 @@ def test_remux_video_called_process_error():
     """Test remux_video raises RuntimeError on ffmpeg failure."""
     with patch(
         "audio_transcriber.media.get_audio_tracks",
-        return_value=[MagicMock(index=0)],
+        return_value=[MagicMock(index=0, codec_name="aac")],
     ):
         with patch(
             "subprocess.run",
@@ -163,6 +163,27 @@ def test_remux_video_called_process_error():
                     clean_audio=Path("clean.wav"),
                     output_video=Path("out.mp4"),
                 )
+
+
+def test_remux_video_unknown_codec_fallback():
+    """Test remux_video falls back to pcm_s16le when codec is unknown."""
+    with patch(
+        "audio_transcriber.media.get_audio_tracks",
+        return_value=[MagicMock(index=0, codec_name="unknown")],
+    ):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            remux_video(
+                original_video=Path("dummy.mp4"),
+                mic_track_number=1,
+                clean_audio=Path("clean.wav"),
+                output_video=Path("out.mp4"),
+            )
+            # Check if pcm_s16le was used in the ffmpeg command
+            called_args = mock_run.call_args[0][0]
+            assert "-c:a:0" in called_args
+            idx = called_args.index("-c:a:0")
+            assert called_args[idx + 1] == "pcm_s16le"
 
 
 def test_ffmpeg_real_multitrack_workflow(tmp_path: Path):
@@ -272,4 +293,85 @@ def test_get_timecode_offset_without_timecode():
         mock_run.return_value = MagicMock(stdout=mock_stdout, returncode=0)
         offset = get_timecode_offset(Path("no_timecode.mp4"))
 
+    assert offset == 0.0
+
+
+def test_get_timecode_offset_format_tags():
+    """Test get_timecode_offset parses from format tags instead of streams."""
+    from audio_transcriber.media import get_timecode_offset
+
+    mock_stdout = json.dumps(
+        {
+            "streams": [],
+            "format": {"tags": {"timecode": "01:00:00:00"}},
+        }
+    )
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout=mock_stdout, returncode=0)
+        offset = get_timecode_offset(Path("sample.mov"))
+    assert offset == 3600.0
+
+
+def test_get_timecode_offset_framerate_errors():
+    """Test get_timecode_offset ignores invalid frame rates."""
+    from audio_transcriber.media import get_timecode_offset
+
+    # "invalid/fps" throws ValueError, "30/0" throws ZeroDivisionError
+    for r_fps in ["invalid/fps", "30/0"]:
+        mock_stdout = json.dumps(
+            {
+                "streams": [
+                    {
+                        "r_frame_rate": r_fps,
+                        "tags": {"timecode": "00:00:01:15"},
+                    }
+                ],
+                "format": {"tags": {}},
+            }
+        )
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(stdout=mock_stdout, returncode=0)
+            offset = get_timecode_offset(Path("sample.mov"))
+
+        # default fps is 30.0, 15 frames / 30 = 0.5s
+        assert pytest.approx(offset, 0.001) == 1.5
+
+
+def test_get_timecode_offset_invalid_parts():
+    """Test get_timecode_offset returns 0.0 if timecode parts != 4."""
+    from audio_transcriber.media import get_timecode_offset
+
+    mock_stdout = json.dumps(
+        {
+            "streams": [
+                {
+                    "tags": {"timecode": "01:00"},
+                }
+            ],
+            "format": {"tags": {}},
+        }
+    )
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout=mock_stdout, returncode=0)
+        offset = get_timecode_offset(Path("sample.mov"))
+    assert offset == 0.0
+
+
+def test_get_timecode_offset_invalid_values():
+    """Test get_timecode_offset returns 0.0 if timecode parts are not ints."""
+    from audio_transcriber.media import get_timecode_offset
+
+    mock_stdout = json.dumps(
+        {
+            "streams": [
+                {
+                    "tags": {"timecode": "01:00:00:AA"},
+                }
+            ],
+            "format": {"tags": {}},
+        }
+    )
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout=mock_stdout, returncode=0)
+        offset = get_timecode_offset(Path("sample.mov"))
     assert offset == 0.0
