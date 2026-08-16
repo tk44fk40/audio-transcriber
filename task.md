@@ -30,14 +30,26 @@
 
 ## 進行中フェーズ
 
-### Phase 14: STREAMING_LOG リアルタイムログ出力および無音タイマー式タイミング確定・独自VADチャンク連携の修正
-- [x] 14.1 独自実装VADによるチャンクイベント通知の復元・連携 (`vad_filter=False` 前提、`vad_chunks` / `vad_chunk_start`)
-- [x] 14.2 `sanitizer.py` における除外・短縮理由（`no_speech`, `speed`, `loop`, `empty`, `repeat`）の判別機能 (`SanitizeResult`, `DropReason`) 実装
-- [x] 14.3 `timing.py` & `pipeline_events.py` における「無音タイマー確定方式（最大 `end_padding` 遅延）」の実装（即時推論・後処理通知 ➔ 無音経過/次発話時の重複防止・確定通知）
-- [x] 14.4 `cli_ui.py` における `STREAMING_LOG = true` のインデントログ出力フォーマット実装（`[VAD]` / `[Whisper]` / `[後処理]` / `[重複防止]` / `[Text]`、`▶ [postprocess_summary]`）
-- [x] 14.5 `cli_ui.py` における `STREAMING_LOG = false` のシンプル出力実装（余分な進捗抑制、`[Text]` のみ順次出力）
-- [x] 14.6 単体テスト・結合テストの追加・更新（TDDサイクル、境界値・エッジケース網羅）
-- [x] 14.7 全ファイル300行以下・Docstring網羅・`uv run pre-commit run --all-files` で全検証（カバレッジ100%達成）
+### Phase 12: STREAMING_LOG リアルタイムログ出力および無音タイマー式タイミング確定の実装 ＆ エリア・リファクタリング
+- [x] 12.1 独自実装VADによるチャンクイベント通知の復元・連携 (`vad_filter=False` 前提、`vad_chunks` / `vad_chunk_start`)
+- [x] 12.2 `sanitizer.py` における除外・短縮理由（`no_speech`, `speed`, `loop`, `empty`, `repeat`）の判別機能 (`SanitizeResult`, `DropReason`) 実装
+- [x] 12.3 `timing.py` & `pipeline_events.py` における「無音タイマー確定方式（最大 `end_padding` 遅延）」の実装（即時推論・後処理通知 ➔ 無音経過/次発話時の重複防止・確定通知）
+- [x] 12.4 `cli_ui.py` における `STREAMING_LOG = true` のインデントログ出力フォーマット実装（`[VAD]` / `[Whisper]` / `[後処理]` / `[重複防止]` / `[Text]`、`▶ [postprocess_summary]`）
+- [x] 12.5 `cli_ui.py` における `STREAMING_LOG = false` のシンプル出力実装（余分な進捗抑制、`[Text]` のみ順次出力）
+- [x] 12.6 テストコードのエリア・リファクタリング（領域 A〜D 分割、全42ファイル300行以下・目標200行前後達成）
+- [ ] 12.7 ライブラリソースコードのエリア・リファクタリング（`stt.py`, `media.py`, `pipeline_events.py`, `sanitizer.py` の責務分割・全ファイル200行前後達成）
+- [ ] 12.8 単体・結合テスト全件通過（カバレッジ100%維持）および `uv run pre-commit run --all-files` による一括自動検証
+
+### Phase 13: 耐障害性およびメトリクス通知の実装
+- [ ] 13.1 CUDA OOM（VRAM不足）発生時などの例外捕捉と、安全なCPUフォールバック等のリカバリ処理を実装
+- [ ] 13.2 処理レイテンシやバッファ残量等の稼働状況を監視し、`on_metrics` コールバック等を通じて定期通知する仕組みの構築
+
+### Phase 14: ライブラリ標準インターフェースとアーキテクチャの準拠
+- [ ] 14.1 出力データモデルの標準化 (`RecognizedSegment` 等への完全準拠)
+- [ ] 14.2 ステータスクリア機能 (`reset()` メソッド) の実装
+- [ ] 14.3 推論エンジンの抽象化と切り替え (DI) のリファクタリング
+- [ ] 14.4 単体テスト容易性の向上 (Mock 差し替えとダミー波形入力テスト)
+
 
 
 ## 将来対応
