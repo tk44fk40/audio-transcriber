@@ -2,120 +2,65 @@
 
 ## 進行中フェーズ
 
-### Phase 13: ファイル型、ストリーミング型の統合に関する詳細設計の再設計
 
-ファイル型、ストリーミング型の統合に関する詳細設計の再設計を行います。以下の設計方針に基づいて詳細設計を策定・実装します。
 
-- [ ] 13.1 コア部分の設計
-  - 音声をキューから少しずつ取り出しつつ、VADによるチャンク分割を行う。
-  - チャンクごとにWhisperに認識させて、補正・後処理を行う。
-  - 認識、補正、後処理はVADチャンク単位で完結しつつリアルタイムに進行する。
-- [ ] 13.2 補正・後処理の設計
-  - Whisperが生テキストを返したら即座に補正・後処理を行う。
-- [ ] 13.3 文脈の管理設計
-  - Whisperの生テキストに対して、補正や後処理を行ったあとのセグメントを文脈として記録して管理する。
-  - Whisperのコンテキストから溢れない量の文脈を記録し、あふれる場合は最も古い文脈を切り捨てる。
-  - 設定の初期プロンプトに文脈を結合して、Whisperに渡す。
-  - 管理方法や結合処理は既存の実装に準ずる設計とする。
-- [ ] 13.4 バッファリングとキュー処理の設計
-  - ファイル型: 前処理の済んだファイルを読み取りながらキューに少しずつ投入しながら、コア部分に引き渡す。
-  - ストリーミング型: 渡されたストリームから少しずつキューに投入し、同様にコア部分に引き渡す。
-- [ ] 13.5 タイムコードの設計
-  - ファイル型: ファイルにタイムコード指定がある場合は、コア部分に開始タイムコードとして引き渡して反映させる。
-  - ストリーミング型: 呼び出されるときに開始タイムコードが指定される前提（指定されなかったらストリーム開始位置を開始タイムコード0とする）。開始タイムコードをコア部分に引き渡して反映させる。
-- [ ] 13.6 ファイル型の前処理と後処理の設計
-  - 前処理: 設定/コマンドラインオプション/ライブラリ呼び出し時の設定に従って、ファイルにノイズリダクション、マスタリングを行ってファイル出力する。その後、少しずつキューに投入する。
-  - 後処理: 動画の場合、前処理でノイズリダクション・マスタリングされた音声で入力ファイルの音声トラックを置き換える（REMUX）。
+### Phase 14: 統合パイプラインアーキテクチャの実装 (コーディングフェーズ)
 
-### Phase 14: コードベースリファクタリング
+Phase 13 で策定した詳細設計（`detailed_design.md`）に基づき、新しいキューベース・リアルタイム進行アーキテクチャを実装します。
 
-#### 13.1 モジュール責務分割（最優先）
+#### 14.1 オーケストレーターとプロデューサー層の構築
+- [ ] 14.1.1 `pipeline_supervisor.py` の作成
+  - `PipelineSupervisor` クラスの実装（全体例外捕捉、CLI向けFacade）
+  - CUDA OOM 等のランタイムエラーからの安全なリカバリ処理の実装
+  - ステータスクリア機能 (`reset()` メソッド) によるライフサイクル管理の実装
+- [ ] 14.1.2 `audio_producers.py` の作成
+  - `AudioChunkQueue` (非同期セーフキュー) の実装
+  - `FileAudioProducer` の実装（RNNoise前処理 → 一時ファイル読み込み）
+  - `StreamAudioProducer` の実装
+- [ ] 14.1.3 `file_remuxer.py` の作成
+  - `FileRemuxer` クラスの実装（動画ファイル入力時の音声書き戻し処理）
 
-**`pipeline_events_collector.py`（291行）の分割**
-現状: イベント収集・通知 ＋ 後処理オーケストレーション(sanitize/postprocess/timing) ＋ UIフォーマット が混在
-- [ ] 13.1.1 後処理オーケストレーション（sanitize → postprocess → timing適用）を `segment_processor.py` として分離
-- [ ] 13.1.2 UIフォーマット処理（タイムスタンプ文字列生成・矢印記号等）を `cli_ui.py` 側に移動し、コレクターはデータ（数値）のみ通知するように変更
+#### 14.2 コア・パイプラインと波形スライス抽出の実装
+- [ ] 14.2.1 `vad_manager.py` の改修・新規作成
+  - `VadManagerProtocol` の定義 (DI注入用インターフェース)
+  - `StreamingVadManager` の実装（内部に `AudioRingBuffer` を保持）
+  - VAD終端検知時の波形スライス抽出とバッファ破棄メカニズムの構築
+- [ ] 14.2.2 `unified_pipeline.py` の作成
+  - `UnifiedTranscriptionPipeline` の実装
+  - キューからの取り出し、タイムコード管理、および「VAD波形抽出 ➔ 推論 ➔ 後処理 ➔ 文脈追加」の同期直列ループの制御
+  - 処理レイテンシやバッファ残量等の稼働状況を監視し `on_metrics` コールバックで定期通知する仕組みの構築
 
-**`stt.py`（267行）の分割**
-現状: Whisper推論 ＋ VADチャンク検出 が混在
-- [ ] 13.1.3 `transcribe_file` 内の VAD チャンク検出ロジックを `stt_vad.py` に移動し、`on_progress` 有無によるコードパス分岐バグを修正
+#### 14.3 推論エンジンのDI化と、後処理・文脈モジュールの実装
+- [ ] 14.3.1 `stt.py` の改修 (DI・プロバイダーパターン化)
+  - `TranscriberProvider` (Protocol) の定義
+  - 既存の推論ロジックを `FasterWhisperProvider` として整理し、VADチャンク単位の逐次推論メソッドへ特化
+  - 推論エンジンの抽象化と Factory パターンによる DI 切り替え機能の実装
+- [ ] 14.3.2 `postprocessor.py` の作成 (旧ファイルの統合・マイグレーション)
+  - `PostProcessorProtocol` の定義 (DI注入用インターフェース)
+  - `TextPostProcessor` クラスの実装（無音・無効破棄、重複除去、辞書置換、正規化、タイミング・余韻補正）
+  - 既存の `sanitizer_core.py` と `postprocess.py` のロジックを本ファイルに統合し、旧ファイルを削除
+- [ ] 14.3.3 `context_manager.py` の作成
+  - `ContextManagerProtocol` の定義 (DI注入用インターフェース)
+  - `ContextManager` クラスの実装（履歴テキストのFIFO管理、トークン・文字数溢れ制御、次チャンク用プロンプト生成）
+  - 履歴クリアのための `reset()` メソッドの実装
 
-**`config.py`（258行）の分割**
-現状: TOMLファイルロード ＋ 辞書→Dataclass変換パース処理 が混在
-- [ ] 13.1.4 `parse_config_dict` を `config_parser.py` に分離し、`config.py` を 100 行以下に削減
-
-**`config_models.py`（258行）の分割**
-現状: 13以上の設定Dataclassが1ファイルに集中
-- [ ] 13.1.5 機能エリア別ファイルに分割（例: `config_models_stt.py`, `config_models_stream.py`）し 200 行以下に削減
-
-**`streaming/core.py`（275行）の分割**
-現状: パイプラインライフサイクル管理 ＋ 後処理(sanitize/postprocess) が混在
-- [ ] 13.1.6 後処理部分（sanitize → postprocess）を `segment_processor.py`（13.1.1で作成）に委譲
-
-#### 13.2 重複コードの共通化（優先度: 高）
-- [ ] 13.2.1 `normalize_audio_array(audio) -> np.ndarray` 関数を `audio_utils.py` に追加する
-  - 対象: `streaming/core.py` の `int16→float32` 変換と `stt.py` のステレオ→モノラル変換を統合
-
-#### 13.3 `stt.py` の実装改善（優先度: 高）
-- [ ] 13.3.1 `FasterWhisperProvider.__init__` でのモデルロードを廃止し、初回推論時に遅延ロードする形に変更（§7.4 準拠）
-
-#### 13.4 セグメントデータ型の統一（優先度: 高）
-- [ ] 13.4.1 `stt.py` の `transcribe_file` / `transcribe_stream` 戻り値を `list[dict[str, Any]]` から `list[RecognizedSegment]` に変更
-- [ ] 13.4.2 `pipeline_events_collector.py` の `handle_segment` を `dict` → 型付きモデルで受け取るように変更
-- [ ] 13.4.3 `timing.py` の `# type: ignore[type-arg]` を全廃
-- [ ] 13.4.4 `sanitizer_core.py` の `segment: object` 型を型付きモデルに変更し `isinstance(segment, dict)` 分岐を排除
-
-#### 13.5 再エクスポートのみのモジュールを削除（優先度: 中）
-- [ ] 13.5.1 `media.py` / `sanitizer.py` / `pipeline_events.py` を削除し、呼び出し元を新モジュール名（`media_ffmpeg.py`, `media_probe.py`, `sanitizer_core.py` 等）に直接書き換える
-
-#### 13.6 外部依存ツールの存在チェック追加（優先度: 中）
-- [ ] 13.6.1 `cli.py` または `pipeline.py` 初期化時に `ffmpeg` および `ffprobe` の存在チェック（`shutil.which`）を追加し、未インストール時はわかりやすいエラーで終了させる
-
-#### 13.7 `exporter.py` の時間フォーマット共通化（優先度: 中）
-- [ ] 13.7.1 `exporter.py` 内の `format_timestamp` (SRT用) と `format_vtt_timestamp` (WebVTT用) で重複している時間計算ロジックを共通ヘルパーメソッドに統合
-
-#### 13.8 Docstring・型注釈の品質向上（優先度: 低）
-- [ ] 13.8.1 `exporter.py` の `Raises` セクション追記
-- [ ] 13.8.2 `basedpyright` の型チェック警告をゼロにする
-
-#### 13.9 テストモジュールの再構成（各モジュール分割に追従）
-
-13.8 までの全リファクタリング作業の完了後、対応するテストモジュールも分割後の粒度に合わせて再構成する。
-原則: **1テストモジュール = 1ソースモジュール**
-
-**`pipeline_events_collector.py` 分割に追従（13.1.1 / 13.1.2）**
-- [ ] 13.9.1 新規 `test_segment_processor.py` を作成し、`segment_processor.py` の後処理オーケストレーション（sanitize → postprocess → timing）を単体テスト
-- [ ] 13.9.2 `test_pipeline_events.py` をイベント収集・通知のみのテストに絞り込み、後処理テストを削除
-
-**`stt.py` 分割に追従（13.1.3）**
-- [ ] 13.9.3 `test_stt_vad.py` に移動した VAD チャンク検出ロジックのテストを追加
-- [ ] 13.9.4 `test_stt.py` から VAD 関連テストを削除し、Whisper推論・モデルライフサイクルに限定
-
-**`config.py` 分割に追従（13.1.4）**
-- [ ] 13.9.5 新規 `test_config_parser.py` を作成し、`config_parser.py` の辞書→Dataclass変換ロジックをテスト
-- [ ] 13.9.6 `test_config_parse.py` を TOML ファイルロード処理のみに絞り込み
-
-**`config_models.py` 分割に追従（13.1.5）**
-- [ ] 13.9.7 `test_config_models.py` をエリア別ファイルに合わせて分割（例: `test_config_models_stt.py`, `test_config_models_stream.py`）
-
-**再エクスポートモジュール削除に追従（13.5.1）**
-- [ ] 13.9.8 `test_media_extract.py` / `test_media_remux.py` のインポートを `media_ffmpeg.py` / `media_probe.py` に直接更新
+#### 14.4 エントリーポイントの統合とクリーンアップ
+- [ ] 14.4.1 `cli.py` の改修と出力モデル標準化
+  - 出力データモデルを `RecognizedSegment` へ完全準拠させる
+  - 呼び出しロジックを新設した `PipelineSupervisor` の Facade へ切り替え
+- [ ] 14.4.2 テストコードの再整備 (MockProviderの導入)
+  - `MockProvider` を作成・展開し、GPUレスで非同期キューやDIパイプラインの全体状態遷移テストを可能にする
+  - 新規作成・分割した各コンポーネント（特にバッファスライス抽出や溢れ制御）に対応する単体テストの追加・更新
+- [ ] 14.4.3 旧アーキテクチャファイルの削除
+  - E2Eで動作確認後、不要となった旧パイプラインコード（`pipeline.py`, `streaming/core.py` 等）の削除・整理
 
 ## 未着手のフェーズ
 
-### Phase 15: 耐障害性およびメトリクス通知の実装
-- [ ] 15.1 CUDA OOM 発生時の例外捕捉と安全な CPU フォールバック等のリカバリ処理実装
-- [ ] 15.2 処理レイテンシやバッファ残量等の稼働状況を監視し `on_metrics` コールバックで定期通知する仕組みの構築
 
-### Phase 16: ライブラリ標準インターフェースとアーキテクチャの準拠
-- [ ] 16.1 出力データモデルの標準化 (`RecognizedSegment` 等への完全準拠)
-- [ ] 16.2 ステータスクリア機能 (`reset()` メソッド) の実装
-- [ ] 16.3 推論エンジンの抽象化と Factory パターンによる DI 切り替えリファクタリング
 
-### Phase 17: GPU/デバイス不要テスト基盤の整備（DI注入による全体テスト堅牢化）
-- [ ] 17.1 `MockProvider` の全テストモジュール展開（GPU 依存スキップ制御整備）
-- [ ] 17.2 ダミー波形入力によるパイプライン状態遷移・コールバック発火の単体テスト拡充（全モジュール横断）
-- [ ] 17.3 CPU 環境での完全実行検証（CI 導入への道を開く）
+### Phase 15: GPU/デバイス不要テスト基盤の整備
+- [ ] 15.1 ダミー波形入力によるパイプライン状態遷移・コールバック発火の単体テスト拡充（全モジュール横断）
+- [ ] 15.2 CPU 環境での完全実行検証（CI 導入への道を開く）
 
 ## 将来対応
 - [ ] 音響イベント検知（叫び声・大音量ピーク・笑い声等の分類検知および即時通知）
