@@ -87,7 +87,7 @@ def test_get_audio_tracks_called_process_error() -> None:
 
 def test_extract_audio_track_invalid_track() -> None:
     """範囲外のトラック番号で extract_audio_track を呼んだ場合に ValueError が発生することを検証する。"""
-    with patch("audio_transcriber.media.get_audio_tracks") as mock_get_tracks:
+    with patch("audio_transcriber.media_ffmpeg.get_audio_tracks") as mock_get_tracks:
         mock_get_tracks.return_value = [
             MagicMock(index=0),
             MagicMock(index=1),
@@ -106,7 +106,7 @@ def test_extract_audio_track_invalid_track() -> None:
 def test_extract_audio_track_called_process_error() -> None:
     """ffmpeg 失敗時に RuntimeError が発生することを検証する。"""
     with patch(
-        "audio_transcriber.media.get_audio_tracks",
+        "audio_transcriber.media_ffmpeg.get_audio_tracks",
         return_value=[MagicMock(index=0)],
     ):
         with patch(

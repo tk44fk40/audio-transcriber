@@ -16,7 +16,7 @@ from audio_transcriber.media import (
 def test_remux_video_invalid_track() -> None:
     """範囲外のトラック番号で remux_video を呼んだ場合に ValueError が発生することを検証する。"""
     with patch(
-        "audio_transcriber.media.get_audio_tracks",
+        "audio_transcriber.media_ffmpeg.get_audio_tracks",
         return_value=[MagicMock(index=0)],
     ):
         with pytest.raises(ValueError, match="Invalid audio track number"):
@@ -39,7 +39,7 @@ def test_remux_video_invalid_track() -> None:
 def test_remux_video_called_process_error() -> None:
     """ffmpeg 失敗時に RuntimeError が発生することを検証する。"""
     with patch(
-        "audio_transcriber.media.get_audio_tracks",
+        "audio_transcriber.media_ffmpeg.get_audio_tracks",
         return_value=[MagicMock(index=0, codec_name="aac")],
     ):
         with patch(
@@ -60,7 +60,7 @@ def test_remux_video_called_process_error() -> None:
 def test_remux_video_unknown_codec_fallback() -> None:
     """未知のコーデックの場合に pcm_s16le にフォールバックすることを検証する。"""
     with patch(
-        "audio_transcriber.media.get_audio_tracks",
+        "audio_transcriber.media_ffmpeg.get_audio_tracks",
         return_value=[MagicMock(index=0, codec_name="unknown")],
     ):
         with patch("subprocess.run") as mock_run:
