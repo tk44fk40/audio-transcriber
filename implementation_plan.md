@@ -1,126 +1,47 @@
-# 実装計画: Lumi Companion ストリーミング連携 音声処理ライブラリ拡張 ＆ CLI/マスタリング機能改善
+# 実装計画: Lumi Companion ストリーミング連携 音声処理ライブラリ拡張 ＆ CLI改修
 
 ## 1. 概要
-- **参照元 要件仕様書**: [`lumi_companion/docs/AUDIO_LIBRARY_REQUIREMENTS.md`](file:///home/tk44/ghq/github.com/tk44fk40/lumi_companion/docs/AUDIO_LIBRARY_REQUIREMENTS.md)
-- **詳細設計書**: [`docs/streaming_integration_plan.md`](file:///home/tk44/ghq/github.com/tk44fk40/audio-transcriber/docs/streaming_integration_plan.md)
-- 本計画は、Lumi Companion 向けのストリーミング処理基盤の拡張に加えて、以前のセッションで合意した音声品質向上（マスタリング前処理）および CLI 向けの出力改修・バグ修正を全体の計画として統合したものです。
+- **詳細設計書**: [docs/detailed_design.md](./docs/detailed_design.md)
+- 本計画書は、詳細設計書に基づき実際のコーディング作業（TODO）を管理・追跡するためのタスク概要です。設計の背景や理由、リスク検証などの詳細は上記詳細設計書を参照して実装してください。
 
-## 2. 実装計画
+## 2. 実装計画（完了済みフェーズ概要）
+以下のフェーズは全て実装および動作確認が完了しています。
+- **Phase 1**: モデル常駐型 VAD+Whisper コア ＆ 共通データモデルの実装
+- **Phase 2**: ストリーミング統合パイプライン ＆ 非同期コールバックの実装
+- **Phase 3**: 設定・公開 API 統合
+- **Phase 4**: 音声品質向上のためのマスタリング前処理追加（設定追加・RNNoise連携）
+- **Phase 5**: CLI・パイプラインのストリーミング対応改修（リアルタイムツリー出力等）
+- **Phase 6**: VADタイムスタンプバグ修正（サンプル数から秒数への変換）
+- **Phase 7**: マスタリング動画の音声コーデック維持 (Bugfix)
+- **Phase 8**: カバレッジ（テスト漏れ）の完全網羅（100%達成）
+- **Phase 9**: ストリーミング出力 (cli.py) の完全リアルタイム化
+- **Phase 10**: リアルタイム処理アーキテクチャの完全修正（VADタイムスタンプ・後処理のストリーミング化）
 
-### Phase 1: モデル常駐型 VAD+Whisper コア ＆ 共通データモデル (完了 - Issue #1)
-- [x] `src/audio_transcriber/models.py` に `RecognizedSegment`, `VadState`, `SoundEvent` を定義
-- [x] `src/audio_transcriber/stt.py` (`SpeechTranscriber`, `TranscriberProtocol`, `WhisperModelProtocol`) を実装
-- [x] 単体テスト作成・検証
-
-### Phase 2: ストリーミング統合パイプライン ＆ 非同期コールバック (実装済み・動作確認待ち)
-- [x] `src/audio_transcriber/callbacks.py` (`PipelineCallbacks`, `BasePipelineCallbacks`) を定義
-- [x] `src/audio_transcriber/streaming.py` (`AudioStreamPipeline`) を実装
-- [x] `tests/test_streaming.py`, `tests/test_callbacks.py` で単体テスト作成・検証（強化済）
-
-### Phase 3: 設定・公開 API 統合 (実装済み・動作確認待ち)
-- [x] `src/audio_transcriber/config.py`, `config.toml`, `config.example.toml` にストリーミング用設定モデル追加
-- [x] `src/audio_transcriber/__init__.py` で公開クラス・関数をエクスポート
-
-### Phase 4: 音声品質向上のためのマスタリング前処理追加 (進行中 - ブランチ: issue-1/feat-model-resident-stt-core)
-- [x] `config.toml`, `config.example.toml`, `src/audio_transcriber/config.py` への `[mastering]` セクションパラメータ追加（※詳細は詳細設計書を参照）
-- [x] `cli.py` へのマスタリング用コマンドライン引数追加
-- [x] 実装前の FFmpeg パラメータ動作検証（ターミナルでのテスト）
-- [x] `rnnoise.py` にノイズ除去 ➔ マスタリング直列フィルタ実装
-
-### Phase 5: CLI・パイプラインのストリーミング対応改修
-- [x] `config.toml` へストリーミング・分割用の設定パラメータ追加（※詳細は詳細設計書を参照）
-- [x] `cli.py` へのストリーミング用コマンドライン引数追加
-- [x] `pipeline.py` (`_internal_on_segment`) での単一セグメント処理・遅延重複防止バッファリングの実装
-- [x] `cli.py` をリアルタイムツリー出力またはシンプル出力に改修（一括表示の廃止）
-- [x] `sanitizer.py`, `postprocess.py` の単一セグメント対応メソッド整備
-
-### Phase 6: VADタイムスタンプバグ修正
-- [x] `stt.py` で VAD出力がサンプル数で返る問題を秒数(float)へ変換するように修正
-
-### Phase 7: マスタリング動画の音声コーデック維持 (Bugfix)
-- **作業ブランチ**: 現在のブランチ (`issue-1/feat-model-resident-stt-core`) で実施する
-- [x] `src/audio_transcriber/media.py` の `remux_video` において、出力音声コーデックを `aac` 固定ではなく、元のトラックのコーデック (`codec_name`) を引き継ぐように修正
-- [x] コーデックが取得できない (`unknown`) 場合は非圧縮の `pcm_s16le` にフォールバックする安全処理を追加
-- [x] 作業完了後はセルフチェック（テスト・静的解析など）を実行し、ユーザーへ結果を報告する
-- [x] **指示があるまでコミットやプッシュ等のGit操作は行わない**
-
-### Phase 8: カバレッジ（テスト漏れ）の完全網羅 (新規追加)
-- [x] `pyproject.toml` の `exclude_lines` の修正（Protocol等の `...` 記述が正しく除外されるように正規表現を修正）
-- [x] `src/audio_transcriber/cli.py` のテスト実装（ストリーミングモード、進捗コールバック処理等の網羅）
-- [x] `src/audio_transcriber/pipeline.py` のテスト実装（単一セグメント処理、重複防止バッファリング等の網羅）
-- [x] `src/audio_transcriber/stt.py` のテスト実装（VADタイムスタンプ事前取得と例外処理等の網羅）
-- [x] `src/audio_transcriber/streaming.py` のテスト実装（非同期ストリーミングパイプラインの例外・キャンセル処理等の網羅）
-- [x] `src/audio_transcriber/postprocess.py`, `media.py`, `denoise/engines/rnnoise.py` 等の残り未カバー行（例外系ハンドリング等）のテスト実装
-- [x] 再度 `uv run pre-commit run --all-files -v` にてセルフチェックを実行し、除外項目以外が100%カバーされたことを確認・報告する
-
-### Phase 9: ストリーミング出力 (cli.py) の完全リアルタイム化 (完了)
-- **現状の問題**: `streaming_integration_plan.md` で合意した「処理完了後の一括ツリー表示の廃止」と「STREAMING_LOG (ツリーモード/シンプルモード) に応じたリアルタイム出力」が正しく実装されていない。
-- **修正内容**:
-  - [x] 1. `config.py` と `config.toml` のストリーミング設定 (`StreamConfig`) に `streaming_log: bool = False` を追加。
-  - [x] 2. `cli.py` に `--streaming-log / --no-streaming-log` のコマンドライン引数を追加。
-  - [x] 3. `cli.py` の `run_pipeline` 終了後に一括表示しているツリーログ処理（345行目付近〜末尾）を完全削除。
-  - [x] 4. `handle_progress` および `handle_segment` を修正し、`streaming_log == True` の場合はリアルタイムに `[VAD]`, `[Whisper生]`, `[無音捏造等除外]` などのイベントをツリー形式で出力するように変更。`False` の場合は、生字幕1行のみをシンプルに出力。
-  - [x] 5. これらの改修に伴い、すでに書かれているテスト（`test_cli.py`等）も最新のリアルタイム出力仕様に合わせて修正・カバレッジ100%を維持する。
-
-### Phase 10: リアルタイム処理アーキテクチャの完全修正（VADタイムスタンプ・後処理のストリーミング化）(完了)
-- **現状の問題**:
-  - `faster-whisper` から事前に取得したVADチャンクのタイムスタンプが数千時間等の異常な値で出力されている。
-  - 後処理（無音捏造フィルタ・辞書置換等のサニタイズ）が、依然として `pipeline.py` の最後で一括処理されるバッチ処理アーキテクチャのまま残っているため、Whisper出力・VAD・後処理のログがすべて別のブロックで出力されてしまい、ユーザーの求める「VADチャンクごとにネストされたリアルタイムのツリー表示」になっていない。
-- **修正内容**:
-  - [x] 1. `pipeline.py` の `_internal_on_segment` コールバック内に、`TextPostProcessor` と `SegmentSanitizer` の処理を移動させ、**セグメント1件ごとにリアルタイムで後処理・サニタイズ**を行うストリーミング型にアーキテクチャを完全修正する。
-  - [x] 2. `pipeline.py` は、現在のセグメントが属する `[VAD]` チャンクを特定し、新しいVADチャンクに入ったタイミングで `handle_progress("vad_chunk_start", ...)` を発行するようにし、VADチャンクのヘッダがリアルタイムに適切なタイミングで表示されるようにする。
-  - [x] 3. `[無音捏造等除外]` などのサニタイズ除外イベントも、セグメント処理と同時に `handle_progress` 経由で発行し、`[Whisper生]` の直下にツリー状に出力されるようにする。
-  - [x] 4. VADタイムスタンプ異常の原因（`faster-whisper` のログパースミスやサンプルレートの誤算等）を特定し、正しい秒数（タイムコードオフセット加算済み）で出力されるように修正する。
-  - [x] 5. テストを修正し、100%カバレッジを維持する。
-
-- **修正後の出力イメージ**:
-  ```text
-  ▶  Whisper (large-v3-turbo) による文字起こし推論中...
-
-  [VAD] 00:08:49,000 --> 00:09:07,000 (18.00s)
-    [Whisper生] 00:08:49,707 --> 00:08:52,137 (2.43s) "お前もっとおいで。回収。"
-    [Whisper生] 00:08:53,857 --> 00:08:57,227 (3.37s) "回収。そこにあるでしょ。"
-    [Whisper生] 00:08:59,007 --> 00:09:01,007 (2.00s) "そうそう、そりゃそりゃ。"
-    [Whisper生] 00:09:01,227 --> 00:09:02,107 (0.88s) "そりゃ、もっとおいでそりゃ。"
-    [無音捏造等除外] [除外] 00:09:01,227 (0.9s) 'そりゃ、もっとおいでそりゃ。' (無音捏造/高速ループ)
-    [Whisper生] 00:09:03,157 --> 00:09:04,617 (1.46s) "よしよしよしよし。"
-
-  [VAD] 00:09:27,000 --> 00:09:44,000 (17.00s)
-    [Whisper生] 00:09:27,087 --> 00:09:29,187 (2.10s) "おいで。おやつあげるからおいで。"
-    [Whisper生] 00:09:31,067 --> 00:09:43,317 (12.25s) "おやつあげるから。頑張ろうな。"
-    [テキスト置換] [置換] '頑張ろうな' -> 'がんばろうな'
-    [Whisper生] 00:09:43,037 --> 00:09:43,317 (0.28s) "張ろうな。"
-    [無音捏造等除外] [除外] 00:09:43,037 (0.3s) '張ろうな。' (無音捏造/高速ループ)
-  ```
+## 3. 実装計画（進行中フェーズ）
 
 ### Phase 11: 真のストリーミング入力（True Streaming）アーキテクチャへの完全移行
-- 本ライブラリの本来の目的である「ストリーミングで随時入ってくる音声に対するリアルタイム認識」を実現するため、現在の `faster-whisper` 内蔵バッチ型VADに依存したアーキテクチャを完全刷新する。
-- **改修案**:
-  - [ ] 1. `TranscriberProvider` に `transcribe_stream(audio_stream: Iterable[np.ndarray])` のようなストリーミング入力を受け付けるインターフェースを新設する。
-  - [ ] 2. `faster-whisper` の `vad_filter=True` による全体一括結合を無効化する。
-  - [ ] 3. 自前で音声チャンクを監視する「ストリーミングVADラッパー」を実装し、発声区間が確定するたびにWhisperへ逐次推論させる。
-  - [ ] 4. システム側で絶対タイムスタンプ（ストリーム開始からのオフセット）を管理することで、チャンク分割によるタイムスタンプ再構築問題を根絶する。
+※ 設計詳細、リスク対策（文脈のチャンク切り詰め、長短チャンク保護、ファイル・ストリーミング処理の分離等）については `docs/detailed_design.md` の該当セクションを参照して実装すること。
+
+#### 【実装ステップ（TODO）】
+- [ ] 1. **ストリーミング設定の追加**: `config.py` の `AppConfig` に `StreamContextConfig` クラスを新設。`config.toml` の `[stream]` セクションから `context_max_length`, `context_timeout_seconds`, `chunk_min_seconds`, `chunk_max_seconds` 等をパースする処理を追加。
+- [ ] 2. **CLIからのDI実装**: `cli.py` の `typer.Option` に `--chunk-min-sec`, `--context-timeout` などを追加し、パース結果を `AppConfig` インスタンスへ格納。パイプライン構築時にこの設定オブジェクトをコンストラクタ注入（DI）する構造を整備。
+- [ ] 3. **STTインターフェースの分離**: `interfaces.py` 等の STT Provider 定義に `def transcribe_stream(self, audio_chunk: np.ndarray)` を新設。既存の `transcribe()` にはマスタリング等のファイル専用処理を残し、ストリーミング時は純粋な波形処理のみを行うよう責務を分離。
+- [ ] 4. **ストリーミングVADマネージャーの実装**: `stt.py` に `StreamingVadManager` クラスを新設。`feed_chunk` で渡された波形を内部のリングバッファに追記しつつ Silero VAD で推論を実行。`chunk_max_seconds` への到達、または `SPEECH_END` の検知をトリガーとして確定チャンク（`np.ndarray`）を切り出して `yield` するロジックを実装。
+- [ ] 5. **文脈管理と逐次推論**: Whisper の推論ループにおいて、過去セグメントのテキスト長を合算管理する `ContextManager` を導入。合算文字数が `context_max_length` を超えるか、無音時間が `context_timeout_seconds` を超えたタイミングで `initial_prompt` を空にクリアするロジックを実装し、テストケースを追加する。
+- [ ] 6. **ドキュメント反映**: 新設したパラメータやCLIの挙動（特に文脈リセットの仕様）について `README.md` に具体的な利用例を追記する。
+
+### Phase 12: 耐障害性およびメトリクス通知の実装
+※ 要件仕様書に基づく非機能要件の実現タスク。
+- [ ] 1. **CUDA OOMリカバリの実装**: `stt.py` における Whisper モデルの `model.transcribe` 実行箇所を `try-except RuntimeError` で保護。「out of memory」エラーを捕捉した際、パイプラインをクラッシュさせずに `on_error` コールバックへ通知し、安全にバッファを破棄（または CPU 推論へフォールバック）する安全機構を実装。
+- [ ] 2. **稼働メトリクス計測と通知**: `pipeline.py` に `MetricsTracker` クラスを新設。VADが `SPEECH_END` を検知した時刻を記録し、後処理を経て `on_segment` コールバックが発火するまでの差分時間（E2Eレイテンシ）を計測。内部バッファの滞留フレーム数とともに `callbacks.on_metrics(latency_ms, buffer_size)` を定期的に呼び出すロジックを構築。
+
+### Phase 13: ライブラリ標準インターフェースとアーキテクチャの準拠
+※ 要件仕様書で定義された詳細なインターフェース設計に対する現状の差分を解消するタスク。
+- [ ] 1. **出力データモデルの標準化**: `models.py` 等の共通定義に要件仕様書通りの `@dataclass RecognizedSegment`（`is_peak_sound` などの将来対応フラグを含む）を厳密に定義し、STTプロバイダーの戻り値およびコールバックの引数の型をこれに統一する。
+- [ ] 2. **ステータスクリア機能 (`reset`) の実装**: `AudioStreamPipeline` に `reset()` メソッドを新設。内部で `VadManager.reset()`, `ContextManager.clear()` を呼び出し、Lock オブジェクトを用いて非同期推論スレッドと安全に同期しながら、リングバッファや文脈プロンプトを即座に初期化する仕組みを実装。
+- [ ] 3. **推論エンジンの抽象化と Factory パターン**: 現在 `stt.py` に混在しているロジックを分割。共通の `TranscriberProvider` (Protocol) を定義し、ローカル用の `FasterWhisperProvider` と テスト用の `MockProvider` を実装。`config.stt.engine` の値に基づいて Factory パターンで動的にインスタンスを切り替える DI 構造へリファクタリング。
+- [ ] 4. **単体テストの Mock 化とカバレッジ強化**: `test_stt.py` などのテストコードにおいて、GPUやデバイスを必要としない `MockProvider` を差し込むアーキテクチャを活用し、`np.zeros` 等のダミー波形入力に対する状態遷移やコールバック発火を検証する高品質な単体テストを拡充する。
 
 ### （将来検討）音響イベント検知
-- [ ] マルチトラック分離設計（マイク音 ➔ STT/声検知、ゲーム音 ➔ ゲームSE/環境音検知）
-- [ ] 手法 1, 3 によるイベント検知モデルの導入
+- マルチトラック分離設計および事前学習モデルを用いたイベント検知の導入（詳細は設計書参照）
 
-## 3. ライブラリ利用を想定したパラメータ引き渡し設計
-CLIからだけでなく、別のPythonスクリプトからライブラリとして利用される場合でも正しくパラメータが反映されるよう、設定オブジェクトを経由した引き渡し等のアーキテクチャ・実装ルールを遵守します。
-※具体的な設計ルールおよび実装例については、**詳細設計書（[`docs/streaming_integration_plan.md`](file:///home/tk44/ghq/github.com/tk44fk40/audio-transcriber/docs/streaming_integration_plan.md)）の「4. ライブラリ利用を想定したパラメータ引き渡し設計」** を参照してください。
-
-## 【ドキュメント更新】
-- [x] `README.md` および関連ドキュメントへ、追加した設定パラメータ・CLI引数の使用方法を追記
-
-## 【品質保証・セルフチェックプロセス】
-- [x] 各機能修正・実装時のセルフチェックリストの実施と結果報告
-- [x] カバレッジナレッジ（`docs/testing_and_coverage.md`）の確認と遵守
-- [x] テストが正しく実装されているか、ケース漏れがないかの網羅性確認（ナレッジで除外指定されている箇所以外は全てカバーする）
-- [x] 静的解析（basedpyright, ruff）の実行
-- [x] カバレッジの計測と報告
-
-## 【Git ワークフロー & 最終確認】
-- [x] **（※重要）自動でのコミット・プッシュは絶対に行わないこと**
-- [x] 実装・自動テスト・カバレッジの確認完了後、ユーザーに報告する
-- [x] ユーザーによる実際の動作確認（手動確認）が完了し、承認を得た後にのみコミットとプッシュを実施する
-- [x] （※Issueの更新およびプルリクエストの作成は省略する）
