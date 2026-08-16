@@ -41,7 +41,6 @@ def test_run_pipeline_full_audio_flow(
 
     transcriber = dummy_provider_class(
         model_size=base_config.model.model_size,
-        vad_filter=base_config.transcribe.vad.vad_filter,
         beam_size=base_config.transcribe.beam_size,
     )
 
@@ -98,7 +97,6 @@ def test_run_pipeline_video_flow_with_remux(
 
     transcriber = dummy_provider_class(
         model_size=base_config.model.model_size,
-        vad_filter=base_config.transcribe.vad.vad_filter,
         beam_size=base_config.transcribe.beam_size,
     )
 
@@ -141,7 +139,6 @@ def test_run_pipeline_transcribe_only_mode(
 
     transcriber = dummy_provider_class(
         model_size=base_config.model.model_size,
-        vad_filter=base_config.transcribe.vad.vad_filter,
         beam_size=base_config.transcribe.beam_size,
     )
 
@@ -203,7 +200,6 @@ def test_run_pipeline_creates_nonexistent_output_dir(
 
     transcriber = dummy_provider_class(
         model_size=base_config.model.model_size,
-        vad_filter=base_config.transcribe.vad.vad_filter,
         beam_size=base_config.transcribe.beam_size,
     )
 
@@ -233,7 +229,6 @@ def test_run_pipeline_passes_all_custom_parameters(
     base_config.model.compute_type = "int8"
     base_config.transcribe.language = "en"
     base_config.transcribe.initial_prompt = "Custom Prompt"
-    base_config.transcribe.vad.vad_filter = False
     base_config.transcribe.vad.min_silence_duration_ms = 1000
 
     transcriber = dummy_provider_class(
@@ -242,7 +237,6 @@ def test_run_pipeline_passes_all_custom_parameters(
         compute_type=base_config.model.compute_type,
         language=base_config.transcribe.language,
         initial_prompt=base_config.transcribe.initial_prompt,
-        vad_filter=base_config.transcribe.vad.vad_filter,
         min_silence_duration_ms=base_config.transcribe.vad.min_silence_duration_ms,
     )
 
@@ -259,5 +253,4 @@ def test_run_pipeline_passes_all_custom_parameters(
     assert transcriber.kwargs["compute_type"] == "int8"
     assert transcriber.kwargs["language"] == "en"
     assert transcriber.kwargs["initial_prompt"] == "Custom Prompt"
-    assert transcriber.kwargs["vad_filter"] is False
     assert transcriber.kwargs["min_silence_duration_ms"] == 1000

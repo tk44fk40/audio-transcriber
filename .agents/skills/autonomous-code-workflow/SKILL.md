@@ -10,7 +10,7 @@ description: audio-transcriber の開発ルール (.agents/AGENTS.md) に準拠�
 ## ワークフロー手順
 
 ### Step 0: Issue ・ ブランチ ＆ 計画準備
-1. **GitHub Issue 作成**: タスクリスト（`- [ ] タスク名`）付き Issue を作成 (`gh issue create`)。
+1. **GitHub Issue 作成**: 指示された場合は、タスクリスト（`- [ ] タスク名`）付き Issue を作成 (`gh issue create`)。
 2. **Issue 連動ブランチ**: `issue-<Issue番号>/<機能名>` ブランチを作成・チェックアウト。
 3. **計画書追記**: `implementation_plan.md` / `task.md` に関連 Issue, 作業ブランチ名を明記。
 4. **計画承認**: 計画書の作成・更新後は一時停止し、ユーザーの計画承認を得る。
@@ -24,6 +24,11 @@ description: audio-transcriber の開発ルール (.agents/AGENTS.md) に準拠�
 ### Step 2: TDD (テスト駆動) 単体テストの先行作成
 合意後、実装前に `tests/test_*.py` へ単体テストを作成：
 - モジュール分割 ＆ AAA パターン (Arrange-Act-Assert) 徹底。
+- テスト作成したら、テスト内容について辛口で評価し、改善点があれば自律的に修正と評価を繰り返す。
+  - テスト内容は対象機能に対して妥当か
+  - カバレッジ目的の身のないテストになっていないか
+  - 境界値などの検討は十分か
+  - 可読性の高いわかりやすいテストになっているか
 - `uv run pytest -v --no-header <対象テスト>` を実行し、未実装で失敗（RED）することをエビデンス表示。
 
 ### Step 3: アトミック（小単位）実装
@@ -43,7 +48,10 @@ description: audio-transcriber の開発ルール (.agents/AGENTS.md) に準拠�
   2. 要件適合性
   3. 設計整合性
   4. 疎結合性
-  5. テスト妥当性・網羅性 (エッジケースカバー評価,未カバー妥当性評価)
+  5. テスト妥当性・網羅性
+     - 対象機能に対するテスト内容妥当性、エッジケースカバー,未カバー妥当性について辛口評価
+     - 問題がなくなるまで自律的に修正・再評価を実施し、問題がないことを検証
+     - 未カバー箇所についてナレッジ(docs/testing_and_coverage.md)に反映・更新する
   6. 簡潔性 (KISS)
   7. 副作用
   8. パフォーマンス
@@ -53,6 +61,7 @@ description: audio-transcriber の開発ルール (.agents/AGENTS.md) に準拠�
   - 最終完了・コミット前: 全テスト ＋ カバレッジ表
 
 ### Step 6: PR 作成 ・ スカッシュマージ
+指示された場合は、PR を作成してメインブランチへマージする
 1. **PR 作成**: 本文に `Closes #<Issue番号>` を明記 (`gh pr create`)。
 2. **計画書更新**: 計画書 / `task.md` に PR 番号/URL を追記。
 3. **スカッシュマージ**: メインブランチへマージ (`gh pr merge --squash`)。

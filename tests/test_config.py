@@ -88,7 +88,7 @@ def test_default_config_instances() -> None:
         condition_on_previous_text=True,
         no_speech_threshold=0.6,
         initial_prompt=None,
-        vad=VadConfig(vad_filter=True, min_silence_duration_ms=500, vad_threshold=0.5),
+        vad=VadConfig(min_silence_duration_ms=500, vad_threshold=0.5),
     )
     assert (app_cfg.post_process, app_cfg.subtitle) == (post_cfg, sub_cfg)
     assert app_cfg.mastering == mastering_cfg
@@ -141,7 +141,6 @@ def test_load_config_full_custom_toml(tmp_path: Path) -> None:
     INITIAL_PROMPT = "Custom prompt"
 
     [transcribe.vad]
-    VAD_FILTER = false
     MIN_SILENCE_DURATION_MS = 800
     VAD_THRESHOLD = 0.4
 
@@ -201,10 +200,9 @@ def test_load_config_full_custom_toml(tmp_path: Path) -> None:
     assert cfg.transcribe.no_speech_threshold == 0.85
     assert cfg.transcribe.initial_prompt == "Custom prompt"
     assert (
-        cfg.transcribe.vad.vad_filter,
         cfg.transcribe.vad.min_silence_duration_ms,
         cfg.transcribe.vad.vad_threshold,
-    ) == (False, 800, 0.4)
+    ) == (800, 0.4)
     assert cfg.post_process.replace_terms is False
     assert (cfg.post_process.lower, cfg.post_process.remove_punct) == (True, True)
     assert (

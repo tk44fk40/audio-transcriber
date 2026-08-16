@@ -7,42 +7,59 @@ from __future__ import annotations
 
 import logging
 import tomllib
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from audio_transcriber.config_models import (
+    AppConfig,
+    DenoiseConfig,
+    MasteringConfig,
+    MediaConfig,
+    ModelConfig,
+    PathConfig,
+    PipelineConfig,
+    PostProcessConfig,
+    StreamConfig,
+    StreamContextConfig,
+    SubtitleConfig,
+    TranscribeConfig,
+    VadConfig,
+)
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_FILENAME = "config.toml"
 
+__all__ = [
+    "DEFAULT_CONFIG_FILENAME",
+    "AppConfig",
+    "DenoiseConfig",
+    "MasteringConfig",
+    "MediaConfig",
+    "ModelConfig",
+    "PathConfig",
+    "PipelineConfig",
+    "PostProcessConfig",
+    "StreamConfig",
+    "StreamContextConfig",
+    "SubtitleConfig",
+    "TranscribeConfig",
+    "VadConfig",
+    "load_config",
+    "parse_config_dict",
+]
+
 
 def _normalize_dict(data: dict[str, Any]) -> dict[str, Any]:
-    """辞書のキーを再帰的に小文字化して正規化する。
-
-    Args:
-        data: 任意のキー命名形式を持つ辞書。
-
-    Returns:
-        全キーが小文字に変換された新しい辞書。
-    """
+    """辞書のキーを再帰的に小文字化して正規化する。"""
     normalized: dict[str, Any] = {}
     for k, v in data.items():
-        lower_k = k.lower()
-        normalized[lower_k] = _normalize_dict(v) if isinstance(v, dict) else v
+        normalized[k.lower()] = _normalize_dict(v) if isinstance(v, dict) else v
     return normalized
 
 
 def _get_val(d: dict[str, Any], *keys: str, default: Any = None) -> Any:
-    """辞書から最初に見つかった非Noneのキーの値を返す。
-
-    Args:
-        d: 探索対象の辞書。
-        *keys: 優先度順のキー名リスト (小文字)。
-        default: いずれのキーも存在しない場合のデフォルト値。
-
-    Returns:
-        最初に見つかった値、またはデフォルト値。
-    """
+    """辞書から最初に見つかった非Noneのキーの値を返す。"""
     for k in keys:
         if k in d and d[k] is not None:
             return d[k]
@@ -57,197 +74,28 @@ def _get_path(
     return Path(val) if val is not None else default
 
 
-@dataclass
-class PathConfig:
-    """入出力および各種ファイルパス設定。"""
-
-    output_dir: Path = field(default_factory=lambda: Path("./output"))
-    default_video_path: Path | None = None
-    debug_output_dir: Path | None = None
-    custom_dict_path: Path | None = None
-
-
-@dataclass
-class MediaConfig:
-    """メディア抽出・動画再結合設定。"""
-
-    mic_track: int = 2
-    sample_rate: int = 48000
-
-
-@dataclass
-class ModelConfig:
-    """Whisper推論モデル設定。"""
-
-    model_size: str = "small"
-    device: str = "cuda"
-    compute_type: str = "float16"
-
-
-@dataclass
-class VadConfig:
-    """Silero-VAD 音声区間検出設定。"""
-
-    vad_filter: bool = True
-    min_silence_duration_ms: int = 500
-    vad_threshold: float = 0.5
-
-
-@dataclass
-class TranscribeConfig:
-    """音声文字起こし・Whisper推論設定。"""
-
-    language: str = "ja"
-    beam_size: int = 5
-    condition_on_previous_text: bool = True
-    no_speech_threshold: float = 0.6
-    initial_prompt: str | None = None
-    vad: VadConfig = field(default_factory=VadConfig)
-
-
-@dataclass
-class PostProcessConfig:
-    """テキスト後処理およびサニタイズ設定。"""
-
-    replace_terms: bool = True
-    lower: bool = False
-    remove_punct: bool = False
-    no_speech_threshold: float = 0.6
-    max_chars_per_second: float = 12.0
-
-
-@dataclass
-class SubtitleConfig:
-    """字幕タイミング補正および出力フォーマット設定。"""
-
-    end_padding: float = 1.0
-    min_duration: float = 1.5
-    min_gap: float = 0.05
-    formats: list[str] = field(default_factory=lambda: ["srt", "vtt", "json"])
-
-
-@dataclass
-class DenoiseConfig:
-    """ノイズ除去設定。"""
-
-    enabled: bool = True
-    engine: str = "rnnoise"
-    model_path: Path | None = None
-
-
-@dataclass
-class PipelineConfig:
-    """パイプライン実行制御設定。"""
-
-    remux: bool = True
-
-
-@dataclass
-class MasteringConfig:
-    """音声マスタリング前処理設定。"""
-
-    enabled: bool = False
-    noise_gate_threshold: float = 0.04
-    loudness_i: float = -16.0
-    loudness_tp: float = -2.0
-    loudness_lra: float = 11.0
-    final_limit_db: float = -2.0
-
-
-@dataclass
-class StreamContextConfig:
-    """ストリーミングの文脈管理設定。"""
-
-    context_max_length: int = 200
-    context_timeout_seconds: float = 3.0
-
-
-@dataclass
-class StreamConfig:
-    """ストリーミング処理設定。"""
-
-    chunk_size_ms: int = 100
-    buffer_size_seconds: float = 10.0
-    sample_rate: int = 16000
-    flush_timeout_ms: int = 1000
-    word_gap_split_threshold: float = 1.0
-    streaming_log: bool = False
-
-    chunk_min_seconds: float = 1.0
-    chunk_max_seconds: float = 30.0
-    context: StreamContextConfig = field(default_factory=StreamContextConfig)
-
-
-@dataclass
-class AppConfig:
-    """アプリケーション全体の設定。"""
-
-    paths: PathConfig = field(default_factory=PathConfig)
-    pipeline: PipelineConfig = field(default_factory=PipelineConfig)
-    denoise: DenoiseConfig = field(default_factory=DenoiseConfig)
-    media: MediaConfig = field(default_factory=MediaConfig)
-    model: ModelConfig = field(default_factory=ModelConfig)
-    transcribe: TranscribeConfig = field(default_factory=TranscribeConfig)
-    post_process: PostProcessConfig = field(default_factory=PostProcessConfig)
-    subtitle: SubtitleConfig = field(default_factory=SubtitleConfig)
-    stream: StreamConfig = field(default_factory=StreamConfig)
-    mastering: MasteringConfig = field(default_factory=MasteringConfig)
-
-    @property
-    def output_dir(self) -> Path:
-        """出力先ディレクトリパスへのショートカット。"""
-        return self.paths.output_dir
-
-    @property
-    def default_video_path(self) -> Path | None:
-        """デフォルト入力動画パスへのショートカット。"""
-        return self.paths.default_video_path
-
-    @property
-    def debug_output_dir(self) -> Path | None:
-        """デバッグ出力ディレクトリパスへのショートカット。"""
-        return self.paths.debug_output_dir
-
-    @property
-    def custom_dict_path(self) -> Path | None:
-        """カスタム辞書パスへのショートカット。"""
-        return self.paths.custom_dict_path
-
-
 def parse_config_dict(data: dict[str, Any]) -> AppConfig:
-    """TOMLから読み込んだ辞書をAppConfigインスタンスに変換する。
-
-    大文字・小文字を正規化し、セクションごとの設定をパースします。
-
-    Args:
-        data: 設定辞書。
-
-    Returns:
-        設定値が反映された AppConfig インスタンス。
-    """
+    """TOMLから読み込んだ辞書をAppConfigインスタンスに変換する。"""
     norm = _normalize_dict(data)
 
-    # Path settings ([path] / [paths])
+    # Paths
     path_d = norm.get("path") or norm.get("paths") or {}
-    output_dir = Path(_get_val(path_d, "output_dir", default="./output"))
-    default_video = _get_path(path_d, "default_video_path", "default_video")
-    debug_output = _get_path(path_d, "debug_output_dir", "debug_dir")
-    custom_dict = _get_path(
-        path_d, "custom_dict_path", "custom_dictionary_path", "dictionary_path"
-    )
-
     paths = PathConfig(
-        output_dir=output_dir,
-        default_video_path=default_video,
-        debug_output_dir=debug_output,
-        custom_dict_path=custom_dict,
+        output_dir=Path(_get_val(path_d, "output_dir", default="./output")),
+        default_video_path=_get_path(path_d, "default_video_path", "default_video"),
+        debug_output_dir=_get_path(path_d, "debug_output_dir", "debug_dir"),
+        custom_dict_path=_get_path(
+            path_d,
+            "custom_dict_path",
+            "custom_dictionary_path",
+            "dictionary_path",
+        ),
     )
 
-    # Pipeline
+    # Pipeline, Denoise, Media, Model
     pipe_d = norm.get("pipeline", {})
     pipeline = PipelineConfig(remux=bool(_get_val(pipe_d, "remux", default=True)))
 
-    # Denoise
     denoise_d = norm.get("denoise", {})
     denoise = DenoiseConfig(
         enabled=bool(_get_val(denoise_d, "enabled", default=True)),
@@ -255,14 +103,12 @@ def parse_config_dict(data: dict[str, Any]) -> AppConfig:
         model_path=_get_path(denoise_d, "model_path", "model"),
     )
 
-    # Media
     media_d = norm.get("media", {})
     media = MediaConfig(
         mic_track=int(_get_val(media_d, "mic_track", default=2)),
         sample_rate=int(_get_val(media_d, "sample_rate", default=48000)),
     )
 
-    # Model
     model_d = norm.get("model", {})
     model = ModelConfig(
         model_size=str(_get_val(model_d, "model_size", default="small")),
@@ -274,7 +120,6 @@ def parse_config_dict(data: dict[str, Any]) -> AppConfig:
     trans_d = norm.get("transcribe", {})
     vad_d = trans_d.get("vad") or norm.get("vad", {})
     vad = VadConfig(
-        vad_filter=bool(_get_val(vad_d, "vad_filter", default=True)),
         min_silence_duration_ms=int(
             _get_val(vad_d, "min_silence_duration_ms", default=500)
         ),
@@ -336,17 +181,15 @@ def parse_config_dict(data: dict[str, Any]) -> AppConfig:
         formats=parsed_formats,
     )
 
-    # Stream
+    # Stream & Context
     stream_d = norm.get("stream", {})
     context_d = stream_d.get("context", {})
-
     context = StreamContextConfig(
         context_max_length=int(_get_val(context_d, "context_max_length", default=200)),
         context_timeout_seconds=float(
             _get_val(context_d, "context_timeout_seconds", default=3.0)
         ),
     )
-
     stream = StreamConfig(
         chunk_size_ms=int(_get_val(stream_d, "chunk_size_ms", default=100)),
         buffer_size_seconds=float(
@@ -391,18 +234,7 @@ def parse_config_dict(data: dict[str, Any]) -> AppConfig:
 
 
 def load_config(config_path: Path | str | None = None) -> AppConfig:
-    """TOMLファイルから設定を読み込み、存在しない場合はデフォルト設定を返す。
-
-    Args:
-        config_path: 設定ファイルのパス。None の場合はカレントディレクトリの config.toml を確認。
-
-    Returns:
-        読み込まれた AppConfig インスタンス。
-
-    Raises:
-        FileNotFoundError: 明示的に指定された設定ファイルが存在しない場合。
-        ValueError: TOMLファイルの構文エラーが発生した場合。
-    """
+    """TOMLファイルから設定を読み込み、存在しない場合はデフォルト設定を返す。"""
     if config_path is not None:
         target_path = Path(config_path)
         if not target_path.exists():

@@ -88,9 +88,6 @@ INITIAL_PROMPT = """
 # VAD (Silero-VAD 音声区間検出) 設定
 # ==============================================================================
 [transcribe.vad]
-# VAD フィルタを有効にするか
-VAD_FILTER = true
-
 # 発話区切りと判定する最小無音区間 (ミリ秒)
 MIN_SILENCE_DURATION_MS = 500
 

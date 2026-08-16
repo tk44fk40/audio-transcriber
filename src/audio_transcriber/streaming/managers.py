@@ -1,5 +1,7 @@
 """ストリーミング処理の状態管理・文脈管理マネージャー。"""
 
+from __future__ import annotations
+
 from enum import Enum, auto
 from typing import Any
 
@@ -38,6 +40,8 @@ class ContextManager:
         text = text.strip()
         if not text:
             return
+        if len(text) > self.max_length:
+            text = text[-self.max_length :]
         self.segments.append(text)
         self._trim_over_limit()
 
@@ -54,7 +58,11 @@ class ContextManager:
 
     def _trim_over_limit(self) -> None:
         """最大文字数を超えた古いセグメントを破棄します。"""
-        while self.segments and len("".join(self.segments)) > self.max_length:
+        while self.segments:
+            # 区切り文字（スペース）込みでの長さを評価
+            total_len = sum(len(s) for s in self.segments) + (len(self.segments) - 1)
+            if total_len <= self.max_length:
+                break
             self.segments.pop(0)
 
     def check_timeout(self, silence_duration: float) -> None:
@@ -106,9 +114,6 @@ class StreamingVadManager:
         Args:
             audio_chunk: 音声データチャンク
             is_speech: チャンクが発話区間かどうか
-
-        Returns:
-            切り出された音声データ、なければNone
         """
         chunk_duration = len(audio_chunk) / self.sample_rate
 
@@ -141,9 +146,12 @@ class StreamingVadManager:
             if is_speech:
                 self.state = State.SPEECH_ACTIVE
                 self.silence_timer = 0.0
+            else:
+                self.silence_timer += chunk_duration
             self.buffer.append(audio_chunk)
             self.accumulated_seconds += chunk_duration
 
+        # 無音判定による確定
         if self.state == State.TRAILING_SILENCE:
             if self.silence_timer >= self.min_silence_duration:
                 if (
@@ -154,6 +162,13 @@ class StreamingVadManager:
                 else:
                     self.state = State.HOLDING_SHORT_CHUNK
 
+        # 短チャンク保留中に無音が長時間（min_silenceの3倍以上）継続した場合のフォールバック切り出し
+        if self.state == State.HOLDING_SHORT_CHUNK:
+            if self.silence_timer >= self.min_silence_duration * 3:
+                self.state = State.IDLE
+                return self.flush()
+
+        # 最大チャンク長到達時の強制切り出し
         if (
             self.state != State.IDLE
             and self.accumulated_seconds >= self.chunk_max_seconds

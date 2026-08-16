@@ -34,7 +34,6 @@ COMPUTE_TYPE = "float16"
 LANGUAGE = "ja"
 INITIAL_PROMPT = "ゲーム用語プロンプト"
 [transcribe.vad]
-VAD_FILTER = true
 MIN_SILENCE_DURATION_MS = 600
 """,
         encoding="utf-8",
@@ -52,7 +51,6 @@ MIN_SILENCE_DURATION_MS = 600
         compute_type=cfg.model.compute_type,
         language=cfg.transcribe.language,
         initial_prompt=cfg.transcribe.initial_prompt,
-        vad_filter=cfg.transcribe.vad.vad_filter,
         min_silence_duration_ms=cfg.transcribe.vad.min_silence_duration_ms,
     )
 

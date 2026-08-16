@@ -55,7 +55,6 @@ def test_hardening_non_ascii_and_special_character_paths(
 
     transcriber = dummy_provider_class(
         model_size=base_config.model.model_size,
-        vad_filter=base_config.transcribe.vad.vad_filter,
         beam_size=base_config.transcribe.beam_size,
     )
     transcriber.transcribe_file = MagicMock(
@@ -84,7 +83,6 @@ def test_hardening_non_ascii_and_special_character_paths(
     assert result.srt_file == out_dir / f"{stem}.srt"
     assert result.remuxed_video == out_dir / f"{stem}_clean.mp4"
     assert transcriber.kwargs["model_size"] == base_config.model.model_size
-    assert transcriber.kwargs["vad_filter"] == base_config.transcribe.vad.vad_filter
     assert transcriber.kwargs["beam_size"] == base_config.transcribe.beam_size
 
 
@@ -145,7 +143,6 @@ def test_hardening_empty_zero_byte_media_file(
 
     transcriber = dummy_provider_class(
         model_size=base_config.model.model_size,
-        vad_filter=base_config.transcribe.vad.vad_filter,
         beam_size=base_config.transcribe.beam_size,
     )
     transcriber.transcribe_file = MagicMock(return_value=[])
@@ -168,7 +165,6 @@ def test_hardening_empty_zero_byte_media_file(
     assert result.srt_file == out_dir / "empty_input.srt"
     assert result.transcript_text == ""
     assert transcriber.kwargs["model_size"] == base_config.model.model_size
-    assert transcriber.kwargs["vad_filter"] == base_config.transcribe.vad.vad_filter
     assert transcriber.kwargs["beam_size"] == base_config.transcribe.beam_size
 
 

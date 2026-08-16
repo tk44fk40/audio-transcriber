@@ -20,13 +20,24 @@ class DummyTranscriberProvider(TranscriberProvider):
         self,
         file_path: Path | str,
         on_segment: Callable[[dict[str, Any]], None] | None = None,
-        on_progress: Callable[[str, str], None] | None = None,
+        on_progress: Callable[[str, Any], None] | None = None,
     ) -> list[dict[str, Any]]:
         seg = {"start": 0.0, "end": 1.0, "text": "テスト"}
         if on_segment:
             on_segment(seg)
         if on_progress:
             on_progress("progress", "completed")
+        return [seg]
+
+    def transcribe_stream(
+        self,
+        audio: Any,
+        initial_prompt: str | None = None,
+        on_segment: Callable[[dict[str, Any]], None] | None = None,
+    ) -> list[dict[str, Any]]:
+        seg = {"start": 0.0, "end": 1.0, "text": "テスト"}
+        if on_segment:
+            on_segment(seg)
         return [seg]
 
 

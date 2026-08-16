@@ -174,11 +174,11 @@ def test_config_boundary_numeric_values() -> None:
     raw_data = {
         "post_process": {
             "no_speech_threshold": "0.0",
-            "max_chars_per_second": 0.0,
+            "max_chars_per_second": 0.1,
         },
         "subtitle": {
             "end_padding": 0,
-            "min_duration": "0.0",
+            "min_duration": "0.1",
             "min_gap": 0.001,
         },
     }
@@ -188,7 +188,7 @@ def test_config_boundary_numeric_values() -> None:
 
     # Assert
     assert cfg.post_process.no_speech_threshold == 0.0
-    assert cfg.post_process.max_chars_per_second == 0.0
+    assert cfg.post_process.max_chars_per_second == 0.1
     assert cfg.subtitle.end_padding == 0.0
-    assert cfg.subtitle.min_duration == 0.0
+    assert cfg.subtitle.min_duration == 0.1
     assert cfg.subtitle.min_gap == 0.001

@@ -65,7 +65,7 @@ def get_audio_tracks(media_path: Path) -> list[AudioTrackInfo]:
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
     except subprocess.CalledProcessError as e:
-        logger.error(f"ffprobe failed: {e.stderr}")
+        logger.error("ffprobe failed: %s", e.stderr)
         raise RuntimeError(
             f"Failed to inspect media file '{media_path}': {e.stderr.strip()}"
         ) from e
@@ -119,7 +119,6 @@ def extract_audio_track(
             f"File '{media_path.name}' has {len(tracks)} audio track(s)."
         )
 
-    # 1-indexed to 0-indexed for audio stream mapping
     audio_stream_idx = track_number - 1
     output_wav.parent.mkdir(parents=True, exist_ok=True)
 
@@ -141,7 +140,7 @@ def extract_audio_track(
     try:
         subprocess.run(cmd, capture_output=True, text=True, check=True)
     except subprocess.CalledProcessError as e:
-        logger.error(f"ffmpeg extraction failed: {e.stderr}")
+        logger.error("ffmpeg extraction failed: %s", e.stderr)
         raise RuntimeError(
             f"Failed to extract audio track {track_number} from '{media_path}': {e.stderr.strip()}"
         ) from e
@@ -156,9 +155,6 @@ def remux_video(
     output_video: Path,
 ) -> Path:
     """Remux video by replacing the specified mic audio track with clean audio.
-
-    Copies all video streams and other audio tracks without re-encoding,
-    and encodes the replacement audio track with AAC for maximum compatibility.
 
     Args:
         original_video: Path to the original video file.
@@ -183,8 +179,6 @@ def remux_video(
     replace_idx = mic_track_number - 1
     output_video.parent.mkdir(parents=True, exist_ok=True)
 
-    # Build mapping commands:
-    # Map video stream from input 0
     cmd = [
         "ffmpeg",
         "-y",
@@ -196,19 +190,14 @@ def remux_video(
         "0:v",
     ]
 
-    # Map audio streams preserving order
     for idx in range(len(tracks)):
         if idx == replace_idx:
-            # Map clean audio from input 1
             cmd.extend(["-map", "1:a:0"])
         else:
-            # Map original audio from input 0
             cmd.extend(["-map", f"0:a:{idx}"])
 
-    # Stream copy video
     cmd.extend(["-c:v", "copy"])
 
-    # Audio codec mapping: copy existing untouched tracks, encode replacement
     for out_a_idx, in_a_idx in enumerate(range(len(tracks))):
         if in_a_idx == replace_idx:
             target_codec = tracks[replace_idx].codec_name
@@ -223,7 +212,7 @@ def remux_video(
     try:
         subprocess.run(cmd, capture_output=True, text=True, check=True)
     except subprocess.CalledProcessError as e:
-        logger.error(f"ffmpeg remux failed: {e.stderr}")
+        logger.error("ffmpeg remux failed: %s", e.stderr)
         raise RuntimeError(
             f"Failed to remux video '{original_video}': {e.stderr.strip()}"
         ) from e
@@ -260,12 +249,10 @@ def get_timecode_offset(media_path: Path) -> float:
     tc_str: str | None = None
     fps: float = 30.0
 
-    # 1. format_tags から timecode を探索
     fmt_tags = data.get("format", {}).get("tags", {})
     if "timecode" in fmt_tags:
         tc_str = fmt_tags["timecode"]
 
-    # 2. streams から timecode と frame_rate を探索
     streams = data.get("streams", [])
     for s in streams:
         tags = s.get("tags", {})
@@ -284,7 +271,6 @@ def get_timecode_offset(media_path: Path) -> float:
     if not tc_str:
         return 0.0
 
-    # SMPTE タイムコード (HH:MM:SS:FF または HH:MM:SS;FF) を秒数に変換
     sep = ";" if ";" in tc_str else ":"
     parts = tc_str.strip().split(sep)
     if len(parts) != 4:

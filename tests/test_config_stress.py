@@ -1,6 +1,6 @@
 """Adversarial stress and edge-case tests for configuration parsing and validation.
 
-Milestone 3 向けの設定管理・パラメータ変換・境界値・MAX_SEGMENT_CHARS完全撤廃の
+設定管理・パラメータ変換・境界値バリデーション・MAX_SEGMENT_CHARS完全撤廃の
 ストレステストおよびエッジケース検証を提供します。
 """
 
@@ -13,19 +13,18 @@ import pytest
 
 from audio_transcriber.config import (
     AppConfig,
+    MasteringConfig,
     MediaConfig,
     ModelConfig,
     PipelineConfig,
     PostProcessConfig,
+    StreamConfig,
+    StreamContextConfig,
     SubtitleConfig,
     TranscribeConfig,
     VadConfig,
     parse_config_dict,
 )
-
-# ==============================================================================
-# 1. Custom Dictionary Path in [path] Section Tests
-# ==============================================================================
 
 
 def test_dict_path_omitted() -> None:
@@ -74,13 +73,8 @@ def test_dict_path_special_characters_and_paths(tmp_path: Path) -> None:
     assert cfg_abs.custom_dict_path == Path(special_abs)
 
 
-# ==============================================================================
-# 2. Float and Boundary Value Stress Tests
-# ==============================================================================
-
-
 def test_float_zero_values_preserved() -> None:
-    """0.0 の浮動小数点値がデフォルト値にフォールバックせず 0.0 として維持されることを検証する。"""
+    """0.0 が許容される浮動小数点値がデフォルト値にフォールバックせず 0.0 として維持されることを検証する。"""
     raw_data = {
         "transcribe": {
             "no_speech_threshold": 0.0,
@@ -88,11 +82,9 @@ def test_float_zero_values_preserved() -> None:
         },
         "post_process": {
             "no_speech_threshold": 0.0,
-            "max_chars_per_second": 0.0,
         },
         "subtitle": {
             "end_padding": 0.0,
-            "min_duration": 0.0,
             "min_gap": 0.0,
         },
     }
@@ -101,9 +93,7 @@ def test_float_zero_values_preserved() -> None:
     assert cfg.transcribe.no_speech_threshold == 0.0
     assert cfg.transcribe.vad.vad_threshold == 0.0
     assert cfg.post_process.no_speech_threshold == 0.0
-    assert cfg.post_process.max_chars_per_second == 0.0
     assert cfg.subtitle.end_padding == 0.0
-    assert cfg.subtitle.min_duration == 0.0
     assert cfg.subtitle.min_gap == 0.0
 
 
@@ -166,28 +156,69 @@ def test_float_string_representations() -> None:
     assert cfg.subtitle.min_gap == 0.025
 
 
-def test_float_negative_and_boundary_values() -> None:
-    """負数や極小・極大値が正しく格納されることを検証する。"""
-    raw_data = {
-        "transcribe": {"no_speech_threshold": -0.5},
-        "post_process": {
-            "no_speech_threshold": -1.0,
-            "max_chars_per_second": 1000.0,
-        },
-        "subtitle": {
-            "end_padding": 0.0001,
-            "min_duration": 999.9,
-            "min_gap": -0.1,
-        },
-    }
-    cfg = parse_config_dict(raw_data)
+def test_validation_errors_on_invalid_boundaries() -> None:
+    """無効な境界値を与えた場合に ValueError が正しく送出されることを網羅的に検証する。"""
+    # 1. VadConfig
+    with pytest.raises(ValueError, match="min_silence_duration_ms"):
+        VadConfig(min_silence_duration_ms=0)
+    with pytest.raises(ValueError, match="vad_threshold"):
+        VadConfig(vad_threshold=-0.1)
+    with pytest.raises(ValueError, match="vad_threshold"):
+        VadConfig(vad_threshold=1.1)
 
-    assert cfg.transcribe.no_speech_threshold == -0.5
-    assert cfg.post_process.no_speech_threshold == -1.0
-    assert cfg.post_process.max_chars_per_second == 1000.0
-    assert cfg.subtitle.end_padding == 0.0001
-    assert cfg.subtitle.min_duration == 999.9
-    assert cfg.subtitle.min_gap == -0.1
+    # 2. TranscribeConfig
+    with pytest.raises(ValueError, match="beam_size"):
+        TranscribeConfig(beam_size=0)
+    with pytest.raises(ValueError, match="no_speech_threshold"):
+        TranscribeConfig(no_speech_threshold=-0.1)
+    with pytest.raises(ValueError, match="no_speech_threshold"):
+        TranscribeConfig(no_speech_threshold=1.5)
+
+    # 3. PostProcessConfig
+    with pytest.raises(ValueError, match="no_speech_threshold"):
+        PostProcessConfig(no_speech_threshold=-0.1)
+    with pytest.raises(ValueError, match="max_chars_per_second"):
+        PostProcessConfig(max_chars_per_second=0.0)
+
+    # 4. SubtitleConfig
+    with pytest.raises(ValueError, match="end_padding"):
+        SubtitleConfig(end_padding=-0.1)
+    with pytest.raises(ValueError, match="min_duration"):
+        SubtitleConfig(min_duration=0.0)
+    with pytest.raises(ValueError, match="min_gap"):
+        SubtitleConfig(min_gap=-0.1)
+
+    # 5. MediaConfig
+    with pytest.raises(ValueError, match="mic_track"):
+        MediaConfig(mic_track=0)
+    with pytest.raises(ValueError, match="sample_rate"):
+        MediaConfig(sample_rate=0)
+
+    # 6. MasteringConfig
+    with pytest.raises(ValueError, match="noise_gate_threshold"):
+        MasteringConfig(noise_gate_threshold=-0.1)
+
+    # 7. StreamContextConfig
+    with pytest.raises(ValueError, match="context_max_length"):
+        StreamContextConfig(context_max_length=0)
+    with pytest.raises(ValueError, match="context_timeout_seconds"):
+        StreamContextConfig(context_timeout_seconds=0.0)
+
+    # 8. StreamConfig
+    with pytest.raises(ValueError, match="chunk_size_ms"):
+        StreamConfig(chunk_size_ms=0)
+    with pytest.raises(ValueError, match="buffer_size_seconds"):
+        StreamConfig(buffer_size_seconds=0.0)
+    with pytest.raises(ValueError, match="sample_rate"):
+        StreamConfig(sample_rate=0)
+    with pytest.raises(ValueError, match="flush_timeout_ms"):
+        StreamConfig(flush_timeout_ms=0)
+    with pytest.raises(ValueError, match="word_gap_split_threshold"):
+        StreamConfig(word_gap_split_threshold=-0.1)
+    with pytest.raises(ValueError, match="chunk_min_seconds"):
+        StreamConfig(chunk_min_seconds=0.0)
+    with pytest.raises(ValueError, match="chunk_max_seconds"):
+        StreamConfig(chunk_min_seconds=5.0, chunk_max_seconds=2.0)
 
 
 def test_transcribe_and_post_process_thresholds_are_independent() -> None:
@@ -207,23 +238,16 @@ def test_transcribe_and_post_process_thresholds_are_independent() -> None:
         }
     )
     assert cfg2.transcribe.no_speech_threshold == 0.85
-    assert cfg2.post_process.no_speech_threshold == 0.6  # default
-
-
-# ==============================================================================
-# 3. Boolean and Type Parsing Stress Tests
-# ==============================================================================
+    assert cfg2.post_process.no_speech_threshold == 0.6
 
 
 def test_all_boolean_flags_true_and_false() -> None:
     """全ブールフラグが明示的な True / False に正しく解釈されることを検証する。"""
-    # Test True
     cfg_true = parse_config_dict(
         {
             "pipeline": {"remux": True},
             "transcribe": {
                 "condition_on_previous_text": True,
-                "vad": {"vad_filter": True},
             },
             "post_process": {
                 "replace_terms": True,
@@ -234,20 +258,17 @@ def test_all_boolean_flags_true_and_false() -> None:
     )
     assert cfg_true.pipeline.remux is True
     assert cfg_true.transcribe.condition_on_previous_text is True
-    assert cfg_true.transcribe.vad.vad_filter is True
     assert (
         cfg_true.post_process.replace_terms,
         cfg_true.post_process.lower,
         cfg_true.post_process.remove_punct,
     ) == (True, True, True)
 
-    # Test False
     cfg_false = parse_config_dict(
         {
             "pipeline": {"remux": False},
             "transcribe": {
                 "condition_on_previous_text": False,
-                "vad": {"vad_filter": False},
             },
             "post_process": {
                 "replace_terms": False,
@@ -258,7 +279,6 @@ def test_all_boolean_flags_true_and_false() -> None:
     )
     assert cfg_false.pipeline.remux is False
     assert cfg_false.transcribe.condition_on_previous_text is False
-    assert cfg_false.transcribe.vad.vad_filter is False
     assert (
         cfg_false.post_process.replace_terms,
         cfg_false.post_process.lower,
@@ -273,7 +293,6 @@ def test_boolean_flags_from_integers() -> None:
             "pipeline": {"remux": 0},
             "transcribe": {
                 "condition_on_previous_text": 0,
-                "vad": {"vad_filter": 0},
             },
             "post_process": {
                 "replace_terms": 0,
@@ -284,7 +303,6 @@ def test_boolean_flags_from_integers() -> None:
     )
     assert cfg.pipeline.remux is False
     assert cfg.transcribe.condition_on_previous_text is False
-    assert cfg.transcribe.vad.vad_filter is False
     assert (
         cfg.post_process.replace_terms,
         cfg.post_process.lower,
@@ -292,40 +310,25 @@ def test_boolean_flags_from_integers() -> None:
     ) == (False, True, True)
 
 
-# ==============================================================================
-# 4. Subtitle Formats Parsing Stress Tests
-# ==============================================================================
-
-
 def test_subtitle_formats_permutations() -> None:
     """formats パラメータの多様な入力形式（リスト、空白付き、大文字、カンマ区切り文字列）の解釈を検証する。"""
-    # Uppercase & whitespace list
     cfg1 = parse_config_dict({"subtitle": {"formats": [" SRT ", "VTT", " JSON "]}})
     assert cfg1.subtitle.formats == ["srt", "vtt", "json"]
 
-    # Comma-separated string with spaces and mixed case
     cfg2 = parse_config_dict({"subtitle": {"formats": " SRT, vtt , JSON "}})
     assert cfg2.subtitle.formats == ["srt", "vtt", "json"]
 
-    # Single format string
     cfg3 = parse_config_dict({"subtitle": {"formats": "srt"}})
     assert cfg3.subtitle.formats == ["srt"]
 
-    # String with empty tokens
     cfg4 = parse_config_dict({"subtitle": {"formats": "srt, , , vtt, "}})
     assert cfg4.subtitle.formats == ["srt", "vtt"]
 
-    # Invalid type fallback to default ["srt", "vtt", "json"]
     cfg5 = parse_config_dict({"subtitle": {"formats": None}})
     assert cfg5.subtitle.formats == ["srt", "vtt", "json"]
 
     cfg6 = parse_config_dict({"subtitle": {"formats": 999}})
     assert cfg6.subtitle.formats == ["srt", "vtt", "json"]
-
-
-# ==============================================================================
-# 5. Exhaustive MAX_SEGMENT_CHARS Decommissioning Verification
-# ==============================================================================
 
 
 def test_max_segment_chars_cannot_be_instantiated_on_dataclasses() -> None:

@@ -24,13 +24,22 @@
 
 #### 【実装ステップ（TODO）】
 - [x] **Step 1 & 2**: アーキテクチャ設計 (クラス図・フローチャート・状態遷移図) の合意、およびTDDに基づく各単体テストの先行作成とRED（失敗）状態の確認完了。
-- **Step 3**: クォータ節約と確実な動作確認のための段階的実装 (GREEN化)
-  - [ ] 1. **(第1弾) ストリーミング設定の実装**: `config.py` に `StreamContextConfig` を追加し、TOMLからのパース処理を実装。`test_config.py` をGREENにする。
-  - [ ] 2. **(第2弾) 文脈管理 (ContextManager) の実装**: `streaming/managers.py` に文脈セグメントの破棄・タイムアウトリセットロジックを実装し、関連テストをGREENにする。
-  - [ ] 3. **(第3弾) VAD制御 (StreamingVadManager) の実装**: 同ファイルにリングバッファと発話チャンク切り出しロジックを実装し、全テストをGREENにする。
-- [ ] 4. **STTインターフェースの分離**: STT Provider に `transcribe_stream(audio_chunk)` を新設し、ストリーミング用の純粋な波形処理のみを行う責務に分離。
-- [ ] 5. **逐次推論とCLIのDI統合**: CLIから各種パラメータを受け取り `AppConfig` へ注入。Whisper推論ループに `ContextManager` と `StreamingVadManager` を組み込む。
-- [ ] 6. **ドキュメント反映**: 新設パラメータやストリーミング仕様変更について `README.md` に追記する。
+- **Step 3**: 段階的実装 (GREEN化)
+  - [x] 1. **(第1弾) ストリーミング設定の実装**: `config.py` に `StreamContextConfig` を追加し、TOMLからのパース処理を実装。`test_config.py` をGREENにする。
+  - [x] 2. **(第2弾) 文脈管理 (ContextManager) の実装**: `streaming/managers.py` に文脈セグメントの破棄・タイムアウトリセットロジックを実装し、関連テストをGREENにする。
+  - [x] 3. **(第3弾) VAD制御 (StreamingVadManager) の実装**: 同ファイルにリングバッファと発話チャンク切り出しロジックを実装し、全テストをGREENにする。
+  - [x] 4. **設定・CLIからの `vad_filter` 廃止および内部 `vad_filter=False` 固定化**: `VadConfig`・CLIオプションから `vad_filter` を廃止し、WhisperModel呼び出しでは常に `vad_filter=False` 固定とする。
+  - [x] 5. **STTインターフェースの新設と逐次推論 (`transcribe_stream`)**: STT Provider に `transcribe_stream(audio_chunk, initial_prompt)` を新設し、ストリーミング用の純粋な波形処理を行う責務に分離。
+  - [x] 6. **ストリーミングパイプラインの統合 (`AudioStreamPipeline`)**: `StreamingVadManager`, `ContextManager`, `transcribe_stream` を連携させ、発話区間の切り出し・逐次推論・文脈維持を統合。
+  - [x] 7. **ドキュメント反映**: 新設パラメータやストリーミング仕様変更、`vad_filter` の取り扱いについて `README.md` に追記する。
+  - [x] 8. **セルフチェック指摘事項の改善**:
+    - `cli.py` (603行) を `cli.py`, `cli_ui.py`, `cli_options.py` に分割し全ファイル 300 行以下（目標200行以下）へ。
+    - `pipeline.py` (383行) を `pipeline.py`, `pipeline_events.py`, `pipeline_export.py` に分割し全ファイル 300 行以下へ。
+    - `media.py` (301行) を 300 行以下へ整理。
+    - `stt.py`, `streaming/core.py`, 新規作成モジュールの全公開インターフェースに Google スタイル Docstring を網羅。
+    - `tests/test_streaming.py` の `asyncio.sleep(0.01)` を `asyncio.Event` 待機へ置き換え、完全決定論的テストへ改修。
+    - `uv run pre-commit run --all-files -v` による静的解析・型チェック・全テスト・カバレッジ100%の検証。
+    - セルフチェック9項目の再評価と報告。
 
 ### Phase 12: 耐障害性およびメトリクス通知の実装
 ※ 要件仕様書に基づく非機能要件の実現タスク。

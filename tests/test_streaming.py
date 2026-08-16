@@ -1,55 +1,80 @@
-"""テスト: ストリーミングパイプライン"""
+"""テスト: ストリーミングパイプライン (AudioStreamPipeline)。"""
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
 from audio_transcriber.callbacks import BasePipelineCallbacks
-from audio_transcriber.config import StreamConfig
+from audio_transcriber.config import AppConfig, StreamConfig
 from audio_transcriber.models import RecognizedSegment, VadState
 from audio_transcriber.streaming import AudioStreamPipeline
 from audio_transcriber.stt import TranscriberProvider
 
 
 class MockCallbacks(BasePipelineCallbacks):
-    def __init__(self):
-        self.vad_states = []
-        self.recognized_segments = []
-        self.errors = []
-        self.speech_starts = []
-        self.speech_ends = []
+    """テスト用決定論的コールバックレコーダー。"""
+
+    def __init__(self) -> None:
+        self.vad_states: list[VadState] = []
+        self.recognized_segments: list[RecognizedSegment] = []
+        self.errors: list[Exception] = []
+        self.speech_starts: list[float] = []
+        self.speech_ends: list[float] = []
+        self.segment_event = asyncio.Event()
+        self.speech_start_event = asyncio.Event()
+        self.speech_end_event = asyncio.Event()
+        self.error_event = asyncio.Event()
 
     def on_vad_state_change(self, state: VadState) -> None:
         self.vad_states.append(state)
 
     def on_segment_recognized(self, segment: RecognizedSegment) -> None:
         self.recognized_segments.append(segment)
+        self.segment_event.set()
 
     def on_error(self, error: Exception) -> None:
         self.errors.append(error)
+        self.error_event.set()
 
     def on_speech_start(self, timestamp: float) -> None:
         self.speech_starts.append(timestamp)
+        self.speech_start_event.set()
 
     def on_speech_end(self, timestamp: float) -> None:
         self.speech_ends.append(timestamp)
+        self.speech_end_event.set()
 
 
 @pytest.fixture
-def mock_transcriber():
+def mock_transcriber() -> MagicMock:
+    """テスト用 TranscriberProvider のモックを返します。"""
     transcriber = MagicMock(spec=TranscriberProvider)
+    transcriber.transcribe_stream.return_value = [
+        {
+            "id": 1,
+            "start": 0.0,
+            "end": 1.0,
+            "text": "ストリーミング認識テスト",
+            "confidence": 0.98,
+            "no_speech_prob": 0.01,
+            "compression_ratio": 1.0,
+            "words": [],
+        }
+    ]
     return transcriber
 
 
 @pytest.fixture
-def anyio_backend():
+def anyio_backend() -> str:
     return "asyncio"
 
 
 @pytest.mark.anyio
-async def test_audio_stream_pipeline_lifecycle(mock_transcriber):
+async def test_audio_stream_pipeline_lifecycle(mock_transcriber: MagicMock) -> None:
     """パイプラインの開始、停止、リセットのライフサイクルテスト。"""
     config = StreamConfig()
     callbacks = MockCallbacks()
@@ -62,150 +87,295 @@ async def test_audio_stream_pipeline_lifecycle(mock_transcriber):
     await pipeline.start()
     assert pipeline._is_running is True
 
-    # 複数回startを呼んでも問題ないこと
+    # 複数回 start を呼んでも安全
     await pipeline.start()
 
     await pipeline.reset()
-    assert len(pipeline._buffer) == 0
+    assert pipeline._stream_seconds == 0.0
     assert pipeline._vad_state == VadState.SILENCE
     assert callbacks.vad_states[-1] == VadState.SILENCE
 
     await pipeline.stop()
     assert pipeline._is_running is False
 
-    # 複数回stopを呼んでも問題ないこと
+    # 複数回 stop を呼んでも安全
     await pipeline.stop()
 
 
 @pytest.mark.anyio
-async def test_audio_stream_pipeline_processing(mock_transcriber):
-    """音声チャンクの投入とコールバック発火のテスト。"""
-    config = StreamConfig(sample_rate=16000, buffer_size_seconds=1.0)
+async def test_audio_stream_pipeline_speech_processing_and_callbacks(
+    mock_transcriber: MagicMock,
+) -> None:
+    """音声チャンクの投入とVAD切り出し・推論コールバック発火の決定論的テスト。"""
+    config = StreamConfig(
+        sample_rate=16000,
+        chunk_min_seconds=1.0,
+        chunk_max_seconds=5.0,
+    )
     callbacks = MockCallbacks()
     pipeline = AudioStreamPipeline(
-        transcriber=mock_transcriber, callbacks=callbacks, config=config
+        transcriber=mock_transcriber,
+        callbacks=callbacks,
+        config=config,
+        timecode_offset=10.0,
     )
 
     await pipeline.start()
 
-    # 0.5秒分(8000サンプル)の音声データを送信（バッファが満たされないためコールバックはまだ呼ばれないはず）
-    half_audio = np.zeros(8000, dtype=np.int16).tobytes()
-    await pipeline.feed_chunk(half_audio)
+    # 1.0秒分の発話チャンク (is_speech=True)
+    audio_chunk = np.zeros(16000, dtype=np.int16).tobytes()
+    await pipeline.feed_chunk(audio_chunk, is_speech=True)
 
-    # キュー処理待ち
-    await asyncio.sleep(0.05)
-
-    assert len(callbacks.vad_states) == 0
+    await asyncio.wait_for(callbacks.speech_start_event.wait(), timeout=1.0)
+    assert callbacks.speech_starts == [10.0]
+    assert VadState.SPEECH_START in callbacks.vad_states
+    assert VadState.SPEECH in callbacks.vad_states
     assert len(callbacks.recognized_segments) == 0
 
-    # 残りの0.5秒分を送信
-    await pipeline.feed_chunk(half_audio)
+    # 1.0秒分の無音チャンク (is_speech=False) -> min_silence (0.5s) を超えて確定
+    silence_chunk = np.zeros(16000, dtype=np.float32)
+    await pipeline.feed_chunk(silence_chunk, is_speech=False)
 
-    # キュー処理待ち
-    await asyncio.sleep(0.1)
-
+    await asyncio.wait_for(callbacks.segment_event.wait(), timeout=1.0)
     await pipeline.stop()
 
-    # VAD状態が順序通りに遷移したか厳密に確認
-    assert callbacks.vad_states == [
-        VadState.SPEECH_START,
-        VadState.SPEECH,
-        VadState.SPEECH_END,
-        VadState.SILENCE,
-    ]
-
-    # 発話開始・終了が正しいタイムスタンプで発火したか
-    assert callbacks.speech_starts == [0.0]
-    assert callbacks.speech_ends == [1.0]
-
-    # 認識セグメントが正しく渡されたか
+    assert len(callbacks.speech_ends) >= 1
     assert len(callbacks.recognized_segments) == 1
-    assert callbacks.recognized_segments[0].text == "Transcribed stream text"
+    rec = callbacks.recognized_segments[0]
+    assert rec.text == "ストリーミング認識テスト"
+    assert rec.start == 10.0
+    assert rec.end == 11.0
     assert len(callbacks.errors) == 0
 
 
 @pytest.mark.anyio
-async def test_audio_stream_pipeline_error_handling(mock_transcriber):
-    """例外処理のテスト。"""
-    config = StreamConfig()
+async def test_audio_stream_pipeline_feed_int16_ndarray(
+    mock_transcriber: MagicMock,
+) -> None:
+    """int16 型の numpy 配列チャンクを直接投入して正常に処理されることをテスト。"""
+    config = StreamConfig(sample_rate=16000, chunk_min_seconds=0.5)
     callbacks = MockCallbacks()
     pipeline = AudioStreamPipeline(
         transcriber=mock_transcriber, callbacks=callbacks, config=config
     )
 
     await pipeline.start()
+    int16_audio = np.zeros(8000, dtype=np.int16)
+    await pipeline.feed_chunk(int16_audio, is_speech=True)
+    await pipeline.feed_chunk(np.zeros(8000, dtype=np.int16), is_speech=False)
 
-    # 不正なデータを送ってエラーを起こさせる（例として、無効な型）
-    await pipeline.feed_chunk("invalid data")  # type: ignore
-
-    await asyncio.sleep(0.1)
+    await asyncio.wait_for(callbacks.segment_event.wait(), timeout=1.0)
     await pipeline.stop()
 
-    # on_error が発火したか確認
-    assert len(callbacks.errors) > 0
-    assert isinstance(callbacks.errors[0], Exception)
+    assert len(callbacks.recognized_segments) == 1
 
 
 @pytest.mark.anyio
-async def test_audio_stream_pipeline_feed_chunk_not_running(mock_transcriber):
+async def test_audio_stream_pipeline_context_and_dictionary(
+    tmp_path: Path, mock_transcriber: MagicMock
+) -> None:
+    """カスタム辞書置換および文脈プロンプトの維持を検証するテスト。"""
+    dict_file = tmp_path / "custom_dict.toml"
+    dict_file.write_text('AI = "人工知能"\n', encoding="utf-8")
+
+    app_cfg = AppConfig()
+    app_cfg.paths.custom_dict_path = dict_file
+    app_cfg.stream.chunk_min_seconds = 0.5
+    app_cfg.transcribe.vad.min_silence_duration_ms = 200
+
+    mock_transcriber.transcribe_stream.return_value = [
+        {
+            "start": 0.0,
+            "end": 1.5,
+            "text": "最新の AI 技術",
+            "no_speech_prob": 0.0,
+        }
+    ]
+
+    callbacks = MockCallbacks()
+    pipeline = AudioStreamPipeline(
+        transcriber=mock_transcriber,
+        callbacks=callbacks,
+        app_config=app_cfg,
+    )
+
+    await pipeline.start()
+
+    # 1.5秒発話 + 0.3秒無音
+    await pipeline.feed_chunk(np.zeros(24000, dtype=np.float32), is_speech=True)
+    await pipeline.feed_chunk(np.zeros(4800, dtype=np.float32), is_speech=False)
+
+    await asyncio.wait_for(callbacks.segment_event.wait(), timeout=1.0)
+    await pipeline.stop()
+
+    assert len(callbacks.recognized_segments) == 1
+    assert callbacks.recognized_segments[0].text == "最新の 人工知能 技術"
+    assert "人工知能" in pipeline.context_manager.get_prompt()
+
+
+@pytest.mark.anyio
+async def test_audio_stream_pipeline_sanitizer_drops_and_empty_text(
+    mock_transcriber: MagicMock,
+) -> None:
+    """サニタイザーによる無音ドロップおよびテキスト処理後の空文字スキップをテスト。"""
+    config = StreamConfig(sample_rate=16000, chunk_min_seconds=0.5)
+    callbacks = MockCallbacks()
+    pipeline = AudioStreamPipeline(
+        transcriber=mock_transcriber, callbacks=callbacks, config=config
+    )
+    pipeline.processor.remove_punct = True
+
+    # 1件目は無音捏造（no_speech_prob=0.99）、2件目は記号のみで処理後空文字、3件目は正常
+    mock_transcriber.transcribe_stream.return_value = [
+        {"start": 0.0, "end": 1.0, "text": "幻覚テキスト", "no_speech_prob": 0.99},
+        {"start": 0.0, "end": 1.0, "text": "！？！？", "no_speech_prob": 0.0},
+        {"start": 1.0, "end": 2.0, "text": "正常テキスト", "no_speech_prob": 0.0},
+    ]
+
+    await pipeline.start()
+    await pipeline.feed_chunk(np.zeros(32000, dtype=np.float32), is_speech=True)
+    await pipeline.feed_chunk(np.zeros(16000, dtype=np.float32), is_speech=False)
+
+    await asyncio.wait_for(callbacks.segment_event.wait(), timeout=1.0)
+    await pipeline.stop()
+
+    assert len(callbacks.recognized_segments) == 1
+    assert callbacks.recognized_segments[0].text == "正常テキスト"
+
+
+@pytest.mark.anyio
+async def test_audio_stream_pipeline_segment_timing_edge_cases(
+    mock_transcriber: MagicMock,
+) -> None:
+    """セグメント終了時刻が開始時刻以下の場合に 0.1s 加算補正されることを厳密にテスト。"""
+    config = StreamConfig(sample_rate=16000, chunk_min_seconds=0.5)
+    callbacks = MockCallbacks()
+    pipeline = AudioStreamPipeline(
+        transcriber=mock_transcriber,
+        callbacks=callbacks,
+        config=config,
+        timecode_offset=5.0,
+    )
+
+    # start と end が同じ (1.0, 1.0) -> start_offset(5.0) + 1.0 = 6.0, seg_end = 6.1
+    mock_transcriber.transcribe_stream.return_value = [
+        {"start": 1.0, "end": 1.0, "text": "あ", "no_speech_prob": 0.0}
+    ]
+
+    await pipeline.start()
+    await pipeline.feed_chunk(np.zeros(8000, dtype=np.float32), is_speech=True)
+    await pipeline.feed_chunk(np.zeros(8000, dtype=np.float32), is_speech=False)
+
+    await asyncio.wait_for(callbacks.segment_event.wait(), timeout=1.0)
+    await pipeline.stop()
+
+    assert len(callbacks.recognized_segments) == 1
+    seg = callbacks.recognized_segments[0]
+    assert seg.start == 6.0
+    assert seg.end == pytest.approx(6.1, rel=1e-3)
+
+
+@pytest.mark.anyio
+async def test_audio_stream_pipeline_error_handling(
+    mock_transcriber: MagicMock,
+) -> None:
+    """例外発生時に on_error が適切に通知されることをテスト。"""
+    config = StreamConfig()
+    callbacks = MockCallbacks()
+    mock_transcriber.transcribe_stream.side_effect = RuntimeError(
+        "Whisper inference error"
+    )
+
+    pipeline = AudioStreamPipeline(
+        transcriber=mock_transcriber, callbacks=callbacks, config=config
+    )
+
+    await pipeline.start()
+    await pipeline.feed_chunk(np.zeros(16000, dtype=np.float32), is_speech=True)
+    await pipeline.feed_chunk(np.zeros(16000, dtype=np.float32), is_speech=False)
+
+    await asyncio.wait_for(callbacks.error_event.wait(), timeout=1.0)
+    await pipeline.stop()
+
+    assert len(callbacks.errors) > 0
+    assert "Whisper inference error" in str(callbacks.errors[0])
+
+
+@pytest.mark.anyio
+async def test_audio_stream_pipeline_feed_chunk_not_running(
+    mock_transcriber: MagicMock,
+) -> None:
+    """未実行状態での feed_chunk が安全に無視されることをテスト。"""
     pipeline = AudioStreamPipeline(transcriber=mock_transcriber)
-    # feed_chunk returns early when not running (line 61)
     await pipeline.feed_chunk(b"data")
     assert pipeline._queue.empty()
 
 
 @pytest.mark.anyio
-async def test_audio_stream_pipeline_reset_queue(mock_transcriber):
-    pipeline = AudioStreamPipeline(transcriber=mock_transcriber)
+async def test_audio_stream_pipeline_reset_and_drain_queue(
+    mock_transcriber: MagicMock,
+) -> None:
+    """キューにアイテムが残っている状態で reset を呼び出し安全にクリアされることをテスト。"""
+    config = StreamConfig()
+    callbacks = MockCallbacks()
+    pipeline = AudioStreamPipeline(
+        transcriber=mock_transcriber, callbacks=callbacks, config=config
+    )
     pipeline._is_running = True
-    await pipeline.feed_chunk(b"data1")
-    await pipeline.feed_chunk(b"data2")
-    assert pipeline._queue.qsize() == 2
+    await pipeline.feed_chunk(b"chunk1", is_speech=True)
+    await pipeline.feed_chunk(b"chunk2", is_speech=False)
+    assert not pipeline._queue.empty()
 
-    # reset should clear the queue (lines 69-73)
     await pipeline.reset()
     assert pipeline._queue.empty()
-
-    # Cover QueueEmpty branch
-    pipeline._queue.put_nowait(b"dummy")
-    with patch.object(pipeline._queue, "get_nowait", side_effect=asyncio.QueueEmpty):
-        await pipeline.reset()
+    assert pipeline._stream_seconds == 0.0
+    assert pipeline._vad_state == VadState.SILENCE
 
 
 @pytest.mark.anyio
-async def test_audio_stream_pipeline_process_loop_exceptions(mock_transcriber):
+async def test_audio_stream_pipeline_process_loop_cancellation(
+    mock_transcriber: MagicMock,
+) -> None:
+    """プロセスループがタスクキャンセルされた際に安全に終了することをテスト。"""
     callbacks = MockCallbacks()
     pipeline = AudioStreamPipeline(transcriber=mock_transcriber, callbacks=callbacks)
 
-    # Test CancelledError (line 92-93)
+    loop_started = asyncio.Event()
+    orig_get = pipeline._queue.get
+
+    async def tracking_get() -> tuple[Any, bool] | None:
+        loop_started.set()
+        return await orig_get()
+
+    pipeline._queue.get = tracking_get  # type: ignore[method-assign]
     pipeline._is_running = True
     pipeline._loop_task = asyncio.create_task(pipeline._process_loop())
+    await loop_started.wait()
 
-    # Let the task start waiting on the queue
-    await asyncio.sleep(0.01)
-
-    # Cancel the task
     pipeline._loop_task.cancel()
     try:
         await pipeline._loop_task
     except asyncio.CancelledError:
         pass
-    # No error should be reported for CancelledError
     assert len(callbacks.errors) == 0
 
-    # Test Exception in _process_loop (line 94-95)
-    # We can trigger an exception in _process_loop by making _queue.get raise an error
-    pipeline._loop_task = asyncio.create_task(pipeline._process_loop())
-    # Mock queue.get to raise Exception
 
-    class RaisingQueue(asyncio.Queue):
-        async def get(self):
-            raise RuntimeError("Unexpected error")
+@pytest.mark.anyio
+async def test_audio_stream_pipeline_flush_on_stop(
+    mock_transcriber: MagicMock,
+) -> None:
+    """stop 時に保留中だった音声が flush されて推論されることをテスト。"""
+    config = StreamConfig(sample_rate=16000, chunk_min_seconds=5.0)
+    callbacks = MockCallbacks()
+    pipeline = AudioStreamPipeline(
+        transcriber=mock_transcriber, callbacks=callbacks, config=config
+    )
 
-    pipeline._queue = RaisingQueue()
+    await pipeline.start()
+    # 1.0秒発話のみ送信（最小5.0秒に未達のため通常時は保留）
+    await pipeline.feed_chunk(np.zeros(16000, dtype=np.float32), is_speech=True)
 
-    # Wait for loop to pick it up and crash
-    await asyncio.sleep(0.01)
+    await pipeline.stop()
 
-    assert len(callbacks.errors) > 0
-    assert str(callbacks.errors[0]) == "Unexpected error"
+    assert len(callbacks.recognized_segments) == 1
+    assert callbacks.recognized_segments[0].text == "ストリーミング認識テスト"

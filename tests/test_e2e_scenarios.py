@@ -55,7 +55,6 @@ def test_scenario_1_gaming_commentary_multitrack(
 
     transcriber = dummy_provider_class(
         model_size=base_config.model.model_size,
-        vad_filter=base_config.transcribe.vad.vad_filter,
         beam_size=base_config.transcribe.beam_size,
         initial_prompt=base_config.transcribe.initial_prompt,
     )
@@ -89,7 +88,6 @@ def test_scenario_1_gaming_commentary_multitrack(
     assert result.srt_file == out_dir / "apex_match.srt"
     assert "ナイス!" in str(result.transcript_text)
     assert transcriber.kwargs["model_size"] == base_config.model.model_size
-    assert transcriber.kwargs["vad_filter"] == base_config.transcribe.vad.vad_filter
     assert transcriber.kwargs["beam_size"] == base_config.transcribe.beam_size
 
 
@@ -110,7 +108,6 @@ def test_scenario_2_technical_keynote_transcribe_only(
 
     transcriber = dummy_provider_class(
         model_size=base_config.model.model_size,
-        vad_filter=base_config.transcribe.vad.vad_filter,
         beam_size=base_config.transcribe.beam_size,
         initial_prompt=base_config.transcribe.initial_prompt,
     )
@@ -152,12 +149,10 @@ def test_scenario_3_conversational_turn_taking_vad(
     out_dir = tmp_path / "scenario3_out"
 
     base_config.paths.output_dir = out_dir
-    base_config.transcribe.vad.vad_filter = True
     base_config.transcribe.vad.min_silence_duration_ms = 300
 
     transcriber = dummy_provider_class(
         model_size=base_config.model.model_size,
-        vad_filter=base_config.transcribe.vad.vad_filter,
         beam_size=base_config.transcribe.beam_size,
         vad_parameters={
             "min_silence_duration_ms": base_config.transcribe.vad.min_silence_duration_ms
@@ -183,7 +178,6 @@ def test_scenario_3_conversational_turn_taking_vad(
     # Assert
     assert result.srt_file == out_dir / "interview_turn_taking.srt"
     transcriber.transcribe_file.assert_called_once()
-    assert transcriber.kwargs["vad_filter"] is True
     assert transcriber.kwargs["vad_parameters"]["min_silence_duration_ms"] == 300
 
 
@@ -210,7 +204,6 @@ def test_scenario_4_high_noise_podcast_denoise_and_transcribe(
 
     transcriber = dummy_provider_class(
         model_size=base_config.model.model_size,
-        vad_filter=base_config.transcribe.vad.vad_filter,
         beam_size=base_config.transcribe.beam_size,
         vad_parameters={
             "min_silence_duration_ms": base_config.transcribe.vad.min_silence_duration_ms
@@ -241,7 +234,6 @@ def test_scenario_4_high_noise_podcast_denoise_and_transcribe(
     assert result.srt_file == out_dir / "noisy_studio_podcast.srt"
     assert "本日のテーマ" in str(result.transcript_text)
     assert transcriber.kwargs["model_size"] == base_config.model.model_size
-    assert transcriber.kwargs["vad_filter"] == base_config.transcribe.vad.vad_filter
     assert transcriber.kwargs["beam_size"] == base_config.transcribe.beam_size
 
 

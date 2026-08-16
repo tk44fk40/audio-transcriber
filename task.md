@@ -12,18 +12,23 @@
 - [x] **Phase 9**: ストリーミング出力 (cli.py) の完全リアルタイム化
 - [x] **Phase 10**: リアルタイム処理アーキテクチャの完全修正（VADタイムスタンプ・後処理のストリーミング化）
 
-## 進行中フェーズ
-
-### Phase 11: 真のストリーミング入力（True Streaming）アーキテクチャへの完全移行
-- [x] **Step 1 & 2**: アーキテクチャ設計・状態遷移仕様合意・TDD単体テスト先行作成完了 (RED状態)
-- **Step 3**: 段階的実装 (GREEN化)
+- [x] **Phase 11**: 真のストリーミング入力（True Streaming）アーキテクチャへの完全移行
   - [x] 11.1 (第1弾) Config周りの実装: `config.py` と TOML のパース処理追加し `test_config.py` を GREEN にする
   - [x] 11.2 (第2弾) ContextManager の実装: `managers.py` に文脈管理ロジックを実装し該当テストを GREEN にする
   - [x] 11.3 (第3弾) StreamingVadManager の実装: チャンク管理ロジックを実装し全テストを GREEN にする
-- [ ] 11.4 `TranscriberProvider` (STTインターフェース) に `transcribe_stream` メソッドを新設
-- [ ] 11.5 `faster-whisper` に自前チャンクと合算長さを考慮した `initial_prompt` を渡す逐次推論ロジックの実装
-- [ ] 11.6 パイプラインにおける「ファイル入力」と「ストリーミング入力」の責務分離
-- [ ] 11.7 新規パラメータおよびストリーミングの仕様変更について `README.md` に反映
+  - [x] 11.4 設定・CLIからの `vad_filter` 廃止および内部 `vad_filter=False` 固定化
+  - [x] 11.5 `TranscriberProvider` (STTインターフェース) / `FasterWhisperProvider` に `transcribe_stream` を新設・逐次推論ロジック実装
+  - [x] 11.6 パイプラインにおける「ファイル入力」と「ストリーミング入力」の責務分離 (`AudioStreamPipeline` 統合)
+  - [x] 11.7 新規パラメータおよびストリーミング仕様変更について `README.md` に反映
+  - [x] 11.8 テストコード品質改善・自律リファクタリングループ (境界値バリデーション・決定論的非同期テスト・統合ファイル整理・カバレッジ100%達成)
+  - [x] 11.9 セルフチェック指摘事項の改善（ファイル行数300行以下削減、Docstring網羅、非同期sleep完全排除、自動検証）
+    - [x] モジュール行数削減（cli.py, pipeline.py, media.py の分割・300行以下厳格化）
+    - [x] Docstring 補強（stt.py, streaming/core.py, 新規モジュール等の全公開APIにGoogleスタイルDocstring付与）
+    - [x] 非同期テストの sleep 完全排除（test_streaming.py を asyncio.Event 待機へ改修）
+    - [x] 一括自動検証（pre-commit run --all-files で100%パス・カバレッジ100%）
+    - [x] セルフチェック9項目の再評価と報告書作成
+
+## 進行中フェーズ
 
 ### Phase 12: 耐障害性およびメトリクス通知の実装
 - [ ] 12.1 CUDA OOM（VRAM不足）発生時などの例外捕捉と、安全なCPUフォールバック等のリカバリ処理を実装
