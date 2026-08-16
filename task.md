@@ -18,8 +18,8 @@
 - [x] **Step 1 & 2**: アーキテクチャ設計・状態遷移仕様合意・TDD単体テスト先行作成完了 (RED状態)
 - **Step 3**: 段階的実装 (GREEN化)
   - [x] 11.1 (第1弾) Config周りの実装: `config.py` と TOML のパース処理追加し `test_config.py` を GREEN にする
-  - [ ] 11.2 (第2弾) ContextManager の実装: `managers.py` に文脈管理ロジックを実装し該当テストを GREEN にする
-  - [ ] 11.3 (第3弾) StreamingVadManager の実装: チャンク管理ロジックを実装し全テストを GREEN にする
+  - [x] 11.2 (第2弾) ContextManager の実装: `managers.py` に文脈管理ロジックを実装し該当テストを GREEN にする
+  - [x] 11.3 (第3弾) StreamingVadManager の実装: チャンク管理ロジックを実装し全テストを GREEN にする
 - [ ] 11.4 `TranscriberProvider` (STTインターフェース) に `transcribe_stream` メソッドを新設
 - [ ] 11.5 `faster-whisper` に自前チャンクと合算長さを考慮した `initial_prompt` を渡す逐次推論ロジックの実装
 - [ ] 11.6 パイプラインにおける「ファイル入力」と「ストリーミング入力」の責務分離
