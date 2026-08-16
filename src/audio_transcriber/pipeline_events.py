@@ -11,8 +11,8 @@ from audio_transcriber.exporter import SubtitleExporter
 from audio_transcriber.models import SubtitleSegment
 from audio_transcriber.pipeline_export import export_pipeline_subtitles
 from audio_transcriber.postprocess import TextPostProcessor
-from audio_transcriber.sanitizer import SegmentSanitizer
-from audio_transcriber.timing import SubtitleTimingAdjuster
+from audio_transcriber.sanitizer import DropReason, SegmentSanitizer
+from audio_transcriber.timing import SubtitleTimingAdjuster, split_segments_by_word_gap
 
 __all__ = [
     "TranscriptionPipelineCollector",
@@ -21,69 +21,6 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
-
-
-def split_segments_by_word_gap(
-    seg_dict: dict[str, Any],
-    timecode_offset: float,
-    gap_threshold: float,
-) -> list[dict[str, Any]]:
-    """単語間ギャップに基づいてセグメントを分割し、タイムコードオフセットを適用します。
-
-    Args:
-        seg_dict: Whisperからの生セグメント辞書。
-        timecode_offset: 適用するタイムコードオフセット（秒）。
-        gap_threshold: 単語間ギャップによる分割閾値（秒）。
-
-    Returns:
-        list[dict[str, Any]]: 分割・オフセット調整済みのセグメント辞書リスト。
-    """
-    mapped = dict(seg_dict)
-    mapped["start"] = float(seg_dict.get("start", 0.0)) + timecode_offset
-    mapped["end"] = float(seg_dict.get("end", 0.0)) + timecode_offset
-
-    words = mapped.get("words", [])
-    if not words:
-        return [mapped]
-
-    new_words: list[dict[str, Any]] = []
-    for w in words:
-        if isinstance(w, dict):
-            new_w = dict(w)
-            new_w["start"] = float(w.get("start", 0.0)) + timecode_offset
-            new_w["end"] = float(w.get("end", 0.0)) + timecode_offset
-            new_words.append(new_w)
-
-    sub_segments: list[dict[str, Any]] = []
-    current_chunk: list[dict[str, Any]] = []
-    current_start = float(new_words[0].get("start", 0.0))
-
-    for i, w in enumerate(new_words):
-        current_chunk.append(w)
-        if i < len(new_words) - 1:
-            next_start = float(new_words[i + 1].get("start", 0.0))
-            gap = next_start - w["end"]
-            if gap >= gap_threshold:
-                new_seg = dict(mapped)
-                new_seg["words"] = current_chunk
-                new_seg["start"] = current_start
-                new_seg["end"] = w["end"]
-                new_seg["text"] = "".join(
-                    x.get("word", "") for x in current_chunk
-                ).strip()
-                sub_segments.append(new_seg)
-                current_chunk = []
-                current_start = next_start
-
-    if current_chunk:
-        new_seg = dict(mapped)
-        new_seg["words"] = current_chunk
-        new_seg["start"] = current_start
-        new_seg["end"] = current_chunk[-1]["end"]
-        new_seg["text"] = "".join(x.get("word", "") for x in current_chunk).strip()
-        sub_segments.append(new_seg)
-
-    return sub_segments
 
 
 class TranscriptionPipelineCollector:
@@ -114,12 +51,20 @@ class TranscriptionPipelineCollector:
         self.offset_segment_dicts: list[dict[str, Any]] = []
         self.sanitized_segments: list[SubtitleSegment] = []
         self.processed_segments: list[SubtitleSegment] = []
+        self.final_segments: list[SubtitleSegment] = []
 
+        self._pending_item: tuple[SubtitleSegment, dict[str, Any]] | None = None
         self._current_vad_idx = -1
         self.raw_count = 0
         self.dropped_count = 0
         self.replaced_count = 0
+        self.overlap_prevented_count = 0
 
+        self.adjuster = SubtitleTimingAdjuster(
+            end_padding=cfg.subtitle.end_padding,
+            min_duration=cfg.subtitle.min_duration,
+            min_gap=cfg.subtitle.min_gap,
+        )
         self.sanitizer = SegmentSanitizer(
             no_speech_threshold=cfg.post_process.no_speech_threshold,
             max_chars_per_second=cfg.post_process.max_chars_per_second,
@@ -131,6 +76,53 @@ class TranscriptionPipelineCollector:
             lower=cfg.post_process.lower,
             remove_punct=cfg.post_process.remove_punct,
         )
+
+    def _flush_pending_segment(self, next_start: float | None = None) -> None:
+        """保留中の未確定セグメントに対してタイミング調整を実施し、重複防止・確定テキストを通知します。
+
+        Args:
+            next_start: 次の発話セグメントの開始時刻（秒）。存在しない場合は None。
+        """
+        if self._pending_item is None:
+            return
+
+        clean_seg, sub_seg = self._pending_item
+        (
+            adj_seg,
+            overlap_prevented,
+            raw_target_end,
+        ) = self.adjuster.adjust_single_segment(
+            seg=clean_seg,
+            next_start=next_start,
+        )
+
+        if overlap_prevented and next_start is not None:
+            self.overlap_prevented_count += 1
+            self.processing_events.append(
+                {
+                    "start": clean_seg.start,
+                    "type": "重複防止",
+                    "message": f"終了時刻 {SubtitleExporter.format_timestamp(raw_target_end)} ➔ {SubtitleExporter.format_timestamp(adj_seg.end)} (次発話との重複を回避)",
+                }
+            )
+            if self.on_progress:
+                self.on_progress(
+                    "postprocess_overlap_prevented",
+                    f"終了時刻 {SubtitleExporter.format_timestamp(raw_target_end)} ➔ {SubtitleExporter.format_timestamp(adj_seg.end)} (次発話 {SubtitleExporter.format_timestamp(next_start)} との重複を回避)",
+                )
+
+        self.final_segments.append(adj_seg)
+        if self.on_progress:
+            self.on_progress("text_confirmed", adj_seg)
+
+        if self.on_segment is not None:
+            out_dict = dict(sub_seg)
+            out_dict["start"] = adj_seg.start
+            out_dict["end"] = adj_seg.end
+            out_dict["text"] = adj_seg.text
+            self.on_segment(out_dict)
+
+        self._pending_item = None
 
     def handle_progress(self, stage: str, message: Any) -> None:
         """VADや処理進捗イベントを受け取り、タイムコードオフセットを加味して集約・通知します。
@@ -168,6 +160,9 @@ class TranscriptionPipelineCollector:
             self.offset_segment_dicts.append(sub_seg)
             self.raw_count += 1
             s_start = float(sub_seg["start"])
+            s_end = float(sub_seg["end"])
+            dur = max(0.0, s_end - s_start)
+            raw_text = str(sub_seg.get("text", "")).strip()
 
             while self._current_vad_idx + 1 < len(self.vad_chunks_collected):
                 next_vad = self.vad_chunks_collected[self._current_vad_idx + 1]
@@ -178,26 +173,68 @@ class TranscriptionPipelineCollector:
                 else:
                     break
 
-            clean_seg = self.sanitizer.sanitize_segment(sub_seg)
-            if clean_seg is None:
-                self.dropped_count += 1
-                prob = float(sub_seg.get("no_speech_prob", 0.0))
+            if self.on_progress:
+                self.on_progress(
+                    "whisper_raw",
+                    {
+                        "start": s_start,
+                        "end": s_end,
+                        "duration": dur,
+                        "text": raw_text,
+                    },
+                )
+
+            res = self.sanitizer.sanitize_with_result(sub_seg)
+            if res.repeat_shortened:
                 self.processing_events.append(
                     {
                         "start": s_start,
-                        "type": "無音捏造等除外",
-                        "message": f"no_speech_prob: {prob:.2f}",
+                        "type": "リピート短縮",
+                        "message": f"'{res.original_text}' ➔ '{res.cleaned_text}'",
                     }
                 )
                 if self.on_progress:
-                    s_str = SubtitleExporter.format_timestamp(s_start)
-                    dur = float(sub_seg["end"]) - s_start
                     self.on_progress(
-                        "postprocess_dropped",
-                        f"[除外] {s_str} ({dur:.1f}s) '{sub_seg.get('text', '')}' (無音捏造/高速ループ)",
+                        "postprocess_repeat",
+                        {
+                            "start": s_start,
+                            "end": s_end,
+                            "old_text": res.original_text,
+                            "new_text": res.cleaned_text,
+                        },
                     )
+
+            if res.segment is None:
+                self.dropped_count += 1
+                detail = res.drop_detail or ""
+                stage = "postprocess_dropped"
+                type_name = "除外"
+                if res.drop_reason == DropReason.NO_SPEECH:
+                    stage = "postprocess_drop_no_speech"
+                    type_name = "無音捏造除外"
+                    msg = f"'{raw_text}' ({detail})"
+                elif res.drop_reason == DropReason.SPEED:
+                    stage = "postprocess_drop_speed"
+                    type_name = "異常発話速度除外"
+                    msg = f"'{raw_text}' ({detail})"
+                elif res.drop_reason == DropReason.LOOP:
+                    stage = "postprocess_drop_loop"
+                    type_name = "ループ重複除外"
+                    msg = f"'{raw_text}' (直前='{self.sanitizer.last_valid_text}', {detail})"
+                else:
+                    stage = "postprocess_drop_empty"
+                    type_name = "空文字除外"
+                    msg = f"'{raw_text}' (空文字)"
+
+                self.processing_events.append(
+                    {"start": s_start, "type": type_name, "message": msg}
+                )
+                if self.on_progress:
+                    self.on_progress(stage, msg)
                 continue
 
+            clean_seg = res.segment
+            self._flush_pending_segment(next_start=clean_seg.start)
             self.sanitized_segments.append(clean_seg)
             old_text = clean_seg.text
             new_text = self.processor.apply_to_text(old_text)
@@ -209,74 +246,44 @@ class TranscriptionPipelineCollector:
                     {
                         "start": clean_seg.start,
                         "type": "テキスト置換",
-                        "message": f'"{old_text}" ➔ "{new_text}"',
+                        "message": f"'{old_text}' ➔ '{new_text}'",
                     }
                 )
                 if self.on_progress:
-                    s_str = SubtitleExporter.format_timestamp(clean_seg.start)
                     self.on_progress(
                         "postprocess_replaced",
-                        f"[置換・正規化] {s_str}: '{old_text}' ➔ '{new_text}'",
+                        {
+                            "start": clean_seg.start,
+                            "end": clean_seg.end,
+                            "old_text": old_text,
+                            "new_text": new_text,
+                        },
                     )
 
             self.processed_segments.append(clean_seg)
-
-            if self.on_segment is not None:
-                out_dict = dict(sub_seg)
-                out_dict["start"] = clean_seg.start
-                out_dict["end"] = clean_seg.end
-                out_dict["text"] = clean_seg.text
-                self.on_segment(out_dict)
+            self._pending_item = (clean_seg, sub_seg)
 
     def finalize_timing_and_summary(
-        self, sub_cfg: SubtitleConfig
+        self, sub_cfg: SubtitleConfig | None = None
     ) -> list[SubtitleSegment]:
-        """タイミング調整（パディング・最小長・ギャップ・重複防止）を行いサマリーを通知します。
+        """保留中の最終セグメントを確定し、処理結果サマリーを通知します。
 
         Args:
-            sub_cfg: 字幕設定オブジェクト。
+            sub_cfg: 字幕設定オブジェクト。省略時は初期化時の設定を使用。
 
         Returns:
             list[SubtitleSegment]: 確定した字幕セグメントのリスト。
         """
-        adjuster = SubtitleTimingAdjuster(
-            end_padding=sub_cfg.end_padding,
-            min_duration=sub_cfg.min_duration,
-            min_gap=sub_cfg.min_gap,
-        )
-        final_segments = adjuster.adjust_segments(self.processed_segments)
-        overlap_prevented_count = 0
+        if sub_cfg is not None:
+            self.adjuster.end_padding = sub_cfg.end_padding
+            self.adjuster.min_duration = sub_cfg.min_duration
+            self.adjuster.min_gap = sub_cfg.min_gap
+
+        self._flush_pending_segment(next_start=None)
 
         if self.on_progress:
-            for i, (p_seg, f_seg) in enumerate(
-                zip(self.processed_segments, final_segments, strict=False)
-            ):
-                if i + 1 < len(self.processed_segments):
-                    next_start = getattr(self.processed_segments[i + 1], "start", 0.0)
-                    p_end = getattr(p_seg, "end", 0.0)
-                    p_start = getattr(p_seg, "start", 0.0)
-                    raw_target_end = max(
-                        p_end + sub_cfg.end_padding, p_start + sub_cfg.min_duration
-                    )
-                    f_end = getattr(f_seg, "end", 0.0)
-                    if raw_target_end > f_end and (
-                        raw_target_end > next_start - sub_cfg.min_gap
-                    ):
-                        overlap_prevented_count += 1
-                        txt = getattr(f_seg, "text", "")
-                        self.processing_events.append(
-                            {
-                                "start": p_start,
-                                "type": "重複防止",
-                                "message": f"終了時刻 {SubtitleExporter.format_timestamp(raw_target_end)} ➔ {SubtitleExporter.format_timestamp(f_end)} (次発話との重複を回避)",
-                            }
-                        )
-                        self.on_progress(
-                            "postprocess_overlap_prevented",
-                            f"[重複防止] '{txt}': 終了時刻 {SubtitleExporter.format_timestamp(raw_target_end)} ➔ {SubtitleExporter.format_timestamp(f_end)} (次発話 {SubtitleExporter.format_timestamp(next_start)} との重複を回避)",
-                        )
             self.on_progress(
                 "postprocess_summary",
-                f"サマリー: {self.raw_count}件中 {self.dropped_count}件除外、{self.replaced_count}件置換、{overlap_prevented_count}件重複防止 (確定字幕: {len(final_segments)}件)",
+                f"サマリー: {self.raw_count}件中 {self.dropped_count}件除外、{self.replaced_count}件置換、{self.overlap_prevented_count}件重複防止 (確定字幕: {len(self.final_segments)}件)",
             )
-        return final_segments
+        return self.final_segments

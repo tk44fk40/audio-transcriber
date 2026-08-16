@@ -12,7 +12,6 @@ import pytest
 from audio_transcriber.stt import (
     FasterWhisperProvider,
     TranscriberProvider,
-    VadProgressHandler,
     WhisperModelProtocol,
 )
 
@@ -268,32 +267,3 @@ class TestFasterWhisperProvider:
         with patch("builtins.__import__", side_effect=fake_import):
             transcriber.unload()
         assert transcriber._model is None
-
-
-def test_vad_progress_handler() -> None:
-    """VadProgressHandler のログメッセージパースおよび on_progress=None を検証。"""
-    # 1. on_progress is None
-    handler_none = VadProgressHandler(on_progress=None)
-    mock_log = MagicMock()
-    mock_log.getMessage.return_value = (
-        "VAD filter kept the following audio segments: 1.000s - 2.500s"
-    )
-    handler_none.emit(mock_log)
-
-    # 2. normal parsing
-    chunks: list[tuple[float, float]] = []
-    handler = VadProgressHandler(on_progress=lambda stage, msg: chunks.extend(msg))
-    handler.emit(mock_log)
-    assert chunks == [(1.0, 2.5)]
-
-    # 3. other log
-    mock_log.getMessage.return_value = "other log"
-    handler.emit(mock_log)
-    assert chunks == [(1.0, 2.5)]
-
-    # 4. timestamp > 10000 normalization
-    mock_log.getMessage.return_value = (
-        "VAD filter kept the following audio segments: 16000.000s - 32000.000s"
-    )
-    handler.emit(mock_log)
-    assert chunks[-1] == (1.0, 2.0)

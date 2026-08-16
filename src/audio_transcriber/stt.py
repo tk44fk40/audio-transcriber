@@ -35,21 +35,13 @@ class VadProgressHandler(logging.Handler):
     """Faster-Whisper の内部ロガーから VAD チャンク出力を横取りして通知するハンドラ。"""
 
     def __init__(self, on_progress: Callable[[str, Any], None] | None) -> None:
-        """初期化します。
-
-        Args:
-            on_progress: 進捗通知を受け取るコールバック関数。
-        """
+        """初期化します。"""
         super().__init__()
         self.on_progress = on_progress
         self.setLevel(logging.DEBUG)
 
     def emit(self, record: logging.LogRecord) -> None:
-        """ログレコードを受け取り、VAD出力があればコールバックに送ります。
-
-        Args:
-            record: ログレコードオブジェクト。
-        """
+        """ログレコードを受け取り、VAD出力があればコールバックに送ります。"""
         if not self.on_progress:
             return
         msg = record.getMessage()
@@ -60,14 +52,13 @@ class VadProgressHandler(logging.Handler):
                 "VAD filter kept the following audio segments:", ""
             ).strip()
             pattern = re.compile(r"([\d\.]+)s\s*-\s*([\d\.]+)s")
-            vad_chunks = []
-            for m in pattern.finditer(chunks_str):
-                start = float(m.group(1))
-                end = float(m.group(2))
-                if start > 10000 or end > 10000:
-                    start /= 16000.0
-                    end /= 16000.0
-                vad_chunks.append((start, end))
+            vad_chunks = [
+                (
+                    float(m.group(1)) / (16000.0 if float(m.group(1)) > 10000 else 1.0),
+                    float(m.group(2)) / (16000.0 if float(m.group(2)) > 10000 else 1.0),
+                )
+                for m in pattern.finditer(chunks_str)
+            ]
             self.on_progress("vad_chunks", vad_chunks)
 
 
@@ -130,11 +121,7 @@ class FasterWhisperProvider:
             )
 
     def _build_kwargs(self) -> dict[str, Any]:
-        """推論用キーワード引数を生成します。
-
-        Returns:
-            dict[str, Any]: model.transcribe へ渡すキーワード引数辞書。
-        """
+        """推論用キーワード引数を生成します。"""
         kwargs: dict[str, Any] = {
             "language": self.language,
             "vad_filter": False,
@@ -165,19 +152,20 @@ class FasterWhisperProvider:
         """
         segment_dicts: list[dict[str, Any]] = []
         for i, s in enumerate(segments_gen, start=1):
-            words_list = []
             words_attr = getattr(s, "words", None)
-            if words_attr is not None:
-                for w in words_attr:
-                    words_list.append(
-                        {
-                            "start": float(getattr(w, "start", 0.0)),
-                            "end": float(getattr(w, "end", 0.0)),
-                            "word": getattr(w, "word", ""),
-                            "probability": float(getattr(w, "probability", 0.0)),
-                        }
-                    )
-
+            words_list = (
+                [
+                    {
+                        "start": float(getattr(w, "start", 0.0)),
+                        "end": float(getattr(w, "end", 0.0)),
+                        "word": getattr(w, "word", ""),
+                        "probability": float(getattr(w, "probability", 0.0)),
+                    }
+                    for w in words_attr
+                ]
+                if words_attr is not None
+                else []
+            )
             seg_dict = {
                 "id": getattr(s, "id", i),
                 "start": float(getattr(s, "start", 0.0)),
@@ -218,6 +206,36 @@ class FasterWhisperProvider:
         if self._model is None:
             raise RuntimeError("モデルがロードされていません")
 
+        if on_progress is not None:
+            try:
+                from faster_whisper.audio import decode_audio
+                from faster_whisper.vad import (
+                    VadOptions,
+                    get_speech_timestamps,
+                    get_vad_model,
+                )
+
+                vad_opt = (
+                    VadOptions(**self.vad_parameters)
+                    if self.vad_parameters
+                    else VadOptions()
+                )
+                vad_model = get_vad_model()
+                raw_audio = decode_audio(str(path), sampling_rate=16000)
+                audio_arr: np.ndarray[Any, Any] = (
+                    raw_audio[0] if isinstance(raw_audio, tuple) else raw_audio
+                )
+                timestamps = get_speech_timestamps(
+                    audio_arr, vad_options=vad_opt, vad_model=vad_model
+                )
+                vad_chunks = [
+                    (float(c["start"]) / 16000.0, float(c["end"]) / 16000.0)
+                    for c in timestamps
+                ]
+                on_progress("vad_chunks", vad_chunks)
+            except Exception as e:
+                logger.error("VAD チャンク検出処理に失敗しました: %s", e)
+
         segments_gen, _info = self._model.transcribe(str(path), **self._build_kwargs())
         return self._extract_segments(segments_gen, on_segment=on_segment)
 
@@ -254,10 +272,8 @@ class FasterWhisperProvider:
 
         if audio.dtype == np.int16:
             audio_arr = audio.astype(np.float32) / 32768.0
-        elif audio.dtype != np.float32:
-            audio_arr = audio.astype(np.float32)
         else:
-            audio_arr = audio
+            audio_arr = audio.astype(np.float32) if audio.dtype != np.float32 else audio
 
         kwargs = self._build_kwargs()
         kwargs["vad_filter"] = False

@@ -41,18 +41,28 @@
     - `uv run pre-commit run --all-files -v` による静的解析・型チェック・全テスト・カバレッジ100%の検証。
     - セルフチェック9項目の再評価と報告。
 
-### Phase 12: 耐障害性およびメトリクス通知の実装
-※ 要件仕様書に基づく非機能要件の実現タスク。
-- [ ] 1. **CUDA OOMリカバリの実装**: `stt.py` における Whisper モデルの `model.transcribe` 実行箇所を `try-except RuntimeError` で保護。「out of memory」エラーを捕捉した際、パイプラインをクラッシュさせずに `on_error` コールバックへ通知し、安全にバッファを破棄（または CPU 推論へフォールバック）する安全機構を実装。
-- [ ] 2. **稼働メトリクス計測と通知**: `pipeline.py` に `MetricsTracker` クラスを新設。VADが `SPEECH_END` を検知した時刻を記録し、後処理を経て `on_segment` コールバックが発火するまでの差分時間（E2Eレイテンシ）を計測。内部バッファの滞留フレーム数とともに `callbacks.on_metrics(latency_ms, buffer_size)` を定期的に呼び出すロジックを構築。
+### Phase 14: STREAMING_LOG リアルタイムログ出力および無音タイマー式タイミング確定・独自VADチャンク連携の修正
+- **目的**: `STREAMING_LOG` 設定 (`true`/`false`) におけるログ出力フォーマットを刷新し、独自VADチャンク連携、生認識テキストと後処理イベントの分離、および「無音タイマー確定方式（最大 `end_padding` 遅延）」によるリアルタイムな余韻調整・重複防止を実現する。
+- **方針**:
+  - `vad_filter=False` に固定のまま、独自実装VADによるチャンクイベント（開始、終了、長さ）を適切に通知・連携する。
+  - `sanitizer.py` に `DropReason` / `SanitizeResult` を導入し、除外・短縮理由を判別可能にする。
+  - **無音タイマー確定方式（スライディング無音確定）**:
+    - VADチャンク検出時に即座に推論・サニタイズを行い、`[VAD]` ➔ `  [Whisper]` ➔ `  [テキスト置換 / 理由別除外]` を出力。
+    - 発話終了後、`end_padding`（0.8s〜1.0s）分の無音が経過した時点で満額の余韻を付与して `  [Text]` を確定出力。
+    - `end_padding` 以内に次の発話が開始された場合は、重複分を切り詰めて `  [重複防止]` ➔ `  [Text]` を出力。
+  - `cli_ui.py` のハンドラを改修し、インデント出力（`STREAMING_LOG = true`）およびシンプル出力（`STREAMING_LOG = false`）を完全実装する。
+  - `▶ [postprocess_summary]` 記号を統一。
+- **タスク詳細**:
+  - [x] 14.1 独自実装VADによるチャンクイベント通知の復元・連携 (`vad_filter=False` 前提、`vad_chunks` / `vad_chunk_start`)
+  - [x] 14.2 `sanitizer.py` における除外・短縮理由（`no_speech`, `speed`, `loop`, `empty`, `repeat`）の判別機能 (`SanitizeResult`, `DropReason`) 実装
+  - [x] 14.3 `timing.py` & `pipeline_events.py` における「無音タイマー確定方式（最大 `end_padding` 遅延）」の実装（即時推論・後処理通知 ➔ 無音経過/次発話時の重複防止・確定通知）
+  - [x] 14.4 `cli_ui.py` における `STREAMING_LOG = true` のインデントログ出力フォーマット実装（`[VAD]` / `[Whisper]` / `[後処理]` / `[重複防止]` / `[Text]`、`▶ [postprocess_summary]`）
+  - [x] 14.5 `cli_ui.py` における `STREAMING_LOG = false` のシンプル出力実装（余分な進捗抑制、`[Text]` のみ順次出力）
+  - [x] 14.6 単体テスト・結合テストの追加・更新（TDDサイクル、境界値・エッジケース網羅）
+  - [x] 14.7 全ファイル300行以下・Docstring網羅・`uv run pre-commit run --all-files` で全検証（カバレッジ100%達成）
 
-### Phase 13: ライブラリ標準インターフェースとアーキテクチャの準拠
-※ 要件仕様書で定義された詳細なインターフェース設計に対する現状の差分を解消するタスク。
-- [ ] 1. **出力データモデルの標準化**: `models.py` 等の共通定義に要件仕様書通りの `@dataclass RecognizedSegment`（`is_peak_sound` などの将来対応フラグを含む）を厳密に定義し、STTプロバイダーの戻り値およびコールバックの引数の型をこれに統一する。
-- [ ] 2. **ステータスクリア機能 (`reset`) の実装**: `AudioStreamPipeline` に `reset()` メソッドを新設。内部で `VadManager.reset()`, `ContextManager.clear()` を呼び出し、Lock オブジェクトを用いて非同期推論スレッドと安全に同期しながら、リングバッファや文脈プロンプトを即座に初期化する仕組みを実装。
-- [ ] 3. **推論エンジンの抽象化と Factory パターン**: 現在 `stt.py` に混在しているロジックを分割。共通の `TranscriberProvider` (Protocol) を定義し、ローカル用の `FasterWhisperProvider` と テスト用の `MockProvider` を実装。`config.stt.engine` の値に基づいて Factory パターンで動的にインスタンスを切り替える DI 構造へリファクタリング。
-- [ ] 4. **単体テストの Mock 化とカバレッジ強化**: `test_stt.py` などのテストコードにおいて、GPUやデバイスを必要としない `MockProvider` を差し込むアーキテクチャを活用し、`np.zeros` 等のダミー波形入力に対する状態遷移やコールバック発火を検証する高品質な単体テストを拡充する。
 
 ### （将来検討）音響イベント検知
 - マルチトラック分離設計および事前学習モデルを用いたイベント検知の導入（詳細は設計書参照）
+
 

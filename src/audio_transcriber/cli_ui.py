@@ -7,11 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
 from audio_transcriber.config import AppConfig
 from audio_transcriber.exporter import SubtitleExporter
+from audio_transcriber.models import SubtitleSegment
 from audio_transcriber.pipeline import PipelineResult
 
 
@@ -87,45 +89,130 @@ def create_progress_handler(
 
     def handle_progress(stage: str, message: Any) -> None:
         if not cfg.stream.streaming_log:
-            if stage in (
-                "vad_chunks",
-                "postprocess_dropped",
-                "postprocess_replaced",
-                "postprocess_overlap_prevented",
-            ):
-                return
-            if stage == "postprocess_start":
-                console.print(f"[bold cyan]▶ [postprocess][/bold cyan] {message}")
-            elif stage == "postprocess_summary":
-                console.print(f"  [bold white]└─ {message}[/bold white]")
-            elif stage == "vad":
-                console.print(f"[bold magenta]▶ [vad][/bold magenta] {message}")
-            else:
-                console.print(f"[bold cyan]▶ [{stage}][/bold cyan] {message}")
+            if stage == "text_confirmed":
+                if isinstance(message, SubtitleSegment):
+                    s_str = SubtitleExporter.format_timestamp(message.start)
+                    e_str = SubtitleExporter.format_timestamp(message.end)
+                    dur = max(0.0, message.end - message.start)
+                    txt = message.text
+                elif isinstance(message, dict):
+                    s_str = SubtitleExporter.format_timestamp(message.get("start", 0.0))
+                    e_str = SubtitleExporter.format_timestamp(message.get("end", 0.0))
+                    dur = float(message.get("end", 0.0)) - float(
+                        message.get("start", 0.0)
+                    )
+                    txt = str(message.get("text", ""))
+                else:
+                    txt = str(message)
+                    s_str, e_str, dur = "00:00:00,000", "00:00:00,000", 0.0
+                console.print(
+                    f"[bold green]{escape('[Text]')}[/bold green] {s_str} --> {e_str} ({dur:.2f}s) {escape(txt)}"
+                )
             return
 
         if stage == "vad_chunks":
-            pass
-        elif stage == "vad_chunk_start":
-            v_start, v_end = message
-            dur = max(0.0, v_end - v_start)
+            return
+        if stage == "vad_chunk_start":
+            if isinstance(message, (tuple, list)) and len(message) >= 2:
+                v_start, v_end = float(message[0]), float(message[1])
+                dur = max(0.0, v_end - v_start)
+                s_str = SubtitleExporter.format_timestamp(v_start)
+                e_str = SubtitleExporter.format_timestamp(v_end)
+                console.print(
+                    f"[bold magenta]{escape('[VAD]')}[/bold magenta] {s_str} --> {e_str} ({dur:.2f}s)"
+                )
+            else:
+                console.print(
+                    f"[bold magenta]{escape('[VAD]')}[/bold magenta] {escape(str(message))}"
+                )
+        elif stage == "whisper_raw":
+            if isinstance(message, dict):
+                s_str = SubtitleExporter.format_timestamp(message.get("start", 0.0))
+                e_str = SubtitleExporter.format_timestamp(message.get("end", 0.0))
+                dur = float(message.get("duration", 0.0))
+                txt = str(message.get("text", ""))
+                console.print(
+                    f"  [bold cyan]{escape('[Whisper]')}[/bold cyan] {s_str} --> {e_str} ({dur:.2f}s) {escape(txt)}"
+                )
+            else:
+                console.print(
+                    f"  [bold cyan]{escape('[Whisper]')}[/bold cyan] {escape(str(message))}"
+                )
+        elif stage == "postprocess_replaced":
+            if isinstance(message, dict):
+                old_t = str(message.get("old_text", ""))
+                new_t = str(message.get("new_text", ""))
+                console.print(
+                    f"  [green]{escape('[テキスト置換]')}[/green] '{escape(old_t)}' ➔ '{escape(new_t)}'"
+                )
+            else:
+                console.print(
+                    f"  [green]{escape('[テキスト置換]')}[/green] {escape(str(message))}"
+                )
+        elif stage == "postprocess_repeat":
+            if isinstance(message, dict):
+                old_t = str(message.get("old_text", ""))
+                new_t = str(message.get("new_text", ""))
+                console.print(
+                    f"  [yellow]{escape('[リピート短縮]')}[/yellow] '{escape(old_t)}' ➔ '{escape(new_t)}'"
+                )
+            else:
+                console.print(
+                    f"  [yellow]{escape('[リピート短縮]')}[/yellow] {escape(str(message))}"
+                )
+        elif stage == "postprocess_drop_no_speech":
             console.print(
-                f"\n[bold magenta][VAD][/bold magenta] {SubtitleExporter.format_timestamp(v_start)} --> {SubtitleExporter.format_timestamp(v_end)} ({dur:.2f}s)"
+                f"  [yellow]{escape('[無音捏造除外]')}[/yellow] {escape(str(message))}"
+            )
+        elif stage == "postprocess_drop_speed":
+            console.print(
+                f"  [yellow]{escape('[異常発話速度除外]')}[/yellow] {escape(str(message))}"
+            )
+        elif stage == "postprocess_drop_loop":
+            console.print(
+                f"  [yellow]{escape('[ループ重複除外]')}[/yellow] {escape(str(message))}"
+            )
+        elif stage == "postprocess_drop_empty":
+            console.print(
+                f"  [yellow]{escape('[空文字除外]')}[/yellow] {escape(str(message))}"
             )
         elif stage == "postprocess_dropped":
-            console.print(f"  [yellow][無音捏造等除外][/yellow] {message}")
-        elif stage == "postprocess_replaced":
-            console.print(f"  [green][テキスト置換][/green] {message}")
+            console.print(
+                f"  [yellow]{escape('[無音捏造等除外]')}[/yellow] {escape(str(message))}"
+            )
         elif stage == "postprocess_overlap_prevented":
-            console.print(f"  [magenta][重複防止][/magenta] {message}")
-        elif stage == "postprocess_start":
-            console.print(f"\n[bold cyan]▶ [postprocess][/bold cyan] {message}")
+            console.print(
+                f"  [magenta]{escape('[重複防止]')}[/magenta] {escape(str(message))}"
+            )
+        elif stage == "text_confirmed":
+            if isinstance(message, SubtitleSegment):
+                s_str = SubtitleExporter.format_timestamp(message.start)
+                e_str = SubtitleExporter.format_timestamp(message.end)
+                dur = max(0.0, message.end - message.start)
+                txt = message.text
+            elif isinstance(message, dict):
+                s_str = SubtitleExporter.format_timestamp(message.get("start", 0.0))
+                e_str = SubtitleExporter.format_timestamp(message.get("end", 0.0))
+                dur = float(message.get("end", 0.0)) - float(message.get("start", 0.0))
+                txt = str(message.get("text", ""))
+            else:
+                txt = str(message)
+                s_str, e_str, dur = "00:00:00,000", "00:00:00,000", 0.0
+            console.print(
+                f"  [bold green]{escape('[Text]')}[/bold green] {s_str} --> {e_str} ({dur:.2f}s) {escape(txt)}"
+            )
         elif stage == "postprocess_summary":
-            console.print(f"[bold white]└─ {message}[/bold white]\n")
+            console.print(
+                f"[bold white]▶ {escape('[postprocess_summary]')}[/bold white] {escape(str(message))}"
+            )
         elif stage == "vad":
-            console.print(f"[bold magenta]▶ [vad][/bold magenta] {message}")
+            console.print(
+                f"[bold magenta]▶ {escape('[vad]')}[/bold magenta] {escape(str(message))}"
+            )
         else:
-            console.print(f"[bold cyan]▶ [{stage}][/bold cyan] {message}")
+            console.print(
+                f"[bold cyan]▶ {escape(f'[{stage}]')}[/bold cyan] {escape(str(message))}"
+            )
 
     return handle_progress
 
@@ -144,20 +231,6 @@ def create_segment_handler(
     """
 
     def handle_segment(seg: dict[str, Any]) -> None:
-        start_sec = float(seg.get("start", 0.0))
-        end_sec = float(seg.get("end", 0.0))
-        duration = max(0.0, end_sec - start_sec)
-        start_str = SubtitleExporter.format_timestamp(start_sec)
-        end_str = SubtitleExporter.format_timestamp(end_sec)
-        text = str(seg.get("text", "")).strip()
-
-        if cfg.stream.streaming_log:
-            console.print(
-                f'  [bold cyan][Whisper生][/bold cyan] {start_str} --> {end_str} ({duration:.2f}s) "{text}"'
-            )
-        else:
-            console.print(
-                f"  [dim cyan]{start_str} --> {end_str}[/dim cyan] [dim yellow]({duration:.1f}s)[/dim yellow] [dim white]{text}[/dim white]"
-            )
+        _ = seg
 
     return handle_segment

@@ -94,5 +94,16 @@ uv run pre-commit run --all-files -v
 | `tests/*_coverage*.py` | 全体 | カバレッジ補填用ファイル乱立および残骸ファイル (15バイトのゾンビファイル等) | **DRY / 保守性違反** | `test_*_coverage*.py`（4ファイル）および `test_transcribe.py` を本体テストファイルへ統廃合・完全削除 |
 | `src/audio_transcriber/*.py` | `cli.py` (603行), `pipeline.py` (383行) | 単一モジュールへの処理集中による規模制限超過 (300行上限) | **アーキテクチャ規約違反** | `cli_options.py`, `cli_ui.py`, `pipeline_events.py`, `pipeline_export.py`, `stt_types.py` に責務分割し、全25ファイルを 300 行以下（目標200行以下）に収容した上でカバレッジ 100% を維持 |
 
+### (2026-08-16: Phase 14)
+
+| 対象モジュール | 未カバーだった行 / 改善項目 | 当初の課題 | 評価判定 | 対策内容 |
+|---|---|---|---|---|
+| `sanitizer.py` | `DropReason`, `SanitizeResult` | ハルシネーション除外理由の判別不可 | **要件漏れ** | `DropReason` (StrEnum), `SanitizeResult` (dataclass) を導入し、理由別判定およびリピート短縮を詳細テスト (`test_sanitizer_result.py`) |
+| `stt.py` | `transcribe_file` (VAD連携) | `vad_filter=False` 固定に伴う VAD チャンク通知の消失 | **連携途絶** | `decode_audio` + `get_speech_timestamps` によりファイル処理時も Silero-VAD チャンクを事前検出し `vad_chunks` を通知・単体テスト (`test_stt_vad.py`) |
+| `pipeline_events.py` | `handle_segment` | 生認識テキストと後処理イベントの順序不整合 | **イベント順序乱れ** | 生認識 (`whisper_raw`) ➔ リピート短縮 (`postprocess_repeat`) ➔ 各種除外 (`postprocess_drop_*`) ➔ テキスト置換 (`postprocess_replaced`) ➔ 確定テキスト (`text_confirmed`) の順序を厳格化・単体テスト (`test_pipeline_events.py`) |
+| `timing.py` | `split_segments_by_word_gap` | `pipeline_events.py` のコード行数肥大化 (335行) | **規模制限違反** | 単語ギャップ分割ロジックを `timing.py` へ移動・整理し、全モジュールを 300行以下（目標200行以下）へ収容 |
+| `cli_ui.py` | `create_progress_handler` | `STREAMING_LOG` 設定値による表示フォーマットと抑制ロジック | **UI/UX要件** | `STREAMING_LOG=true` 時のインデントログ (`[VAD]`, `[Whisper]`, `[テキスト置換]`, `[Text]`, `▶ [postprocess_summary]`) と `STREAMING_LOG=false` 時のシンプル出力（`[Text]` のみ表示）を Rich エスケープ対応で完全実装・単体テスト (`test_cli_ui.py`) |
+
 ---
+
 

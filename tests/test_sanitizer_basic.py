@@ -1,4 +1,4 @@
-"""SegmentSanitizer モジュールの単体テスト。"""
+"""SegmentSanitizer 基本機能（空文字、無音確率、発話速度、単語時間補正）の単体テスト。"""
 
 import logging
 from types import SimpleNamespace
@@ -107,99 +107,7 @@ def test_sanitizer_speech_rate_boundary_5_chars() -> None:
     assert len(results) == 0
 
 
-def test_sanitizer_reduces_intra_segment_repetition() -> None:
-    """セグメント内のリピートがハルシネーション条件で短縮されることを検証します。"""
-    # Arrange
-    sanitizer = SegmentSanitizer()
-    segments: list[Any] = [
-        SimpleNamespace(
-            start=0.0,
-            end=2.0,
-            text="あいうえおあいうえお",
-            no_speech_prob=0.2,
-            compression_ratio=1.5,
-        ),
-        SimpleNamespace(
-            start=2.5,
-            end=4.5,
-            text="かきくけこかきくけこ",
-            no_speech_prob=0.05,
-            compression_ratio=2.5,
-        ),
-    ]
-
-    # Act
-    results: list[SubtitleSegment] = sanitizer.sanitize_segments(segments)
-
-    # Assert
-    assert len(results) == 2
-    assert results[0].text == "あいうえお"
-    assert results[1].text == "かきくけこ"
-
-
-def test_sanitizer_preserves_natural_intra_repetition() -> None:
-    """自然な繰り返し (低無音確率かつ低圧縮率) が短縮されずに維持されることを検証します。"""
-    # Arrange
-    sanitizer = SegmentSanitizer()
-    segments: list[Any] = [
-        SimpleNamespace(
-            start=0.0,
-            end=2.0,
-            text="もしもしもしもし",
-            no_speech_prob=0.05,
-            compression_ratio=1.2,
-        ),
-    ]
-
-    # Act
-    results: list[SubtitleSegment] = sanitizer.sanitize_segments(segments)
-
-    # Assert
-    assert len(results) == 1
-    assert results[0].text == "もしもしもしもし"
-
-
-def test_sanitizer_drops_consecutive_loop_in_silence() -> None:
-    """無音時における同一または部分一致テキストの連続ループが除外されることを検証します。"""
-    # Arrange
-    sanitizer = SegmentSanitizer()
-    segments: list[Any] = [
-        SimpleNamespace(
-            start=0.0, end=1.5, text="チャンネル登録お願いします", no_speech_prob=0.05
-        ),
-        SimpleNamespace(
-            start=1.6, end=3.0, text="チャンネル登録お願いします", no_speech_prob=0.3
-        ),
-        SimpleNamespace(start=3.1, end=4.5, text="チャンネル登録", no_speech_prob=0.4),
-    ]
-
-    # Act
-    results: list[SubtitleSegment] = sanitizer.sanitize_segments(segments)
-
-    # Assert
-    assert len(results) == 1
-    assert results[0].text == "チャンネル登録お願いします"
-
-
-def test_sanitizer_preserves_intentional_consecutive_repeat() -> None:
-    """意図的な連続発言 (低無音確率) がループと誤認されず維持されることを検証します。"""
-    # Arrange
-    sanitizer = SegmentSanitizer()
-    segments: list[Any] = [
-        SimpleNamespace(start=0.0, end=1.0, text="はい", no_speech_prob=0.05),
-        SimpleNamespace(start=1.1, end=2.0, text="はい", no_speech_prob=0.05),
-    ]
-
-    # Act
-    results: list[SubtitleSegment] = sanitizer.sanitize_segments(segments)
-
-    # Assert
-    assert len(results) == 2
-    assert results[0].text == "はい"
-    assert results[1].text == "はい"
-
-
-def test_sanitizer_adjusts_start_time_from_words() -> None:
+def test_sanitizer_adjust_start_time_from_words() -> None:
     """単語タイムスタンプが存在する場合、文頭単語の開始時刻に補正されることを検証します。"""
     # Arrange
     sanitizer = SegmentSanitizer()
@@ -292,3 +200,35 @@ def test_sanitizer_logging(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.INFO):
         sanitizer.sanitize_segments(segments, total_duration=0.0)
     assert "発言検出 [0.00s -> 2.00s]: テスト1" in caplog.text
+
+
+def test_sanitizer_speech_rate_exact_limit() -> None:
+    """発話速度が上限値ちょうどの場合に除外されず保持されることを検証します。"""
+    # Arrange: 12文字 / 1.0秒 = 12.0文字/秒 (max_chars_per_second=12.0)
+    sanitizer = SegmentSanitizer(max_chars_per_second=12.0)
+    seg = SimpleNamespace(
+        start=0.0, end=1.0, text="あいうえおかきくけこさし", no_speech_prob=0.05
+    )
+
+    # Act
+    res = sanitizer.sanitize_with_result(seg)
+
+    # Assert
+    assert res.segment is not None
+    assert res.drop_reason is None
+    assert res.segment.text == "あいうえおかきくけこさし"
+
+
+def test_sanitizer_zero_duration_safe_handling() -> None:
+    """start == end (duration=0) の極短時間セグメントでもゼロ除算せず安全に処理されることを検証。"""
+    # Arrange
+    sanitizer = SegmentSanitizer()
+    seg = SimpleNamespace(start=1.0, end=1.0, text="短", no_speech_prob=0.05)
+
+    # Act
+    res = sanitizer.sanitize_with_result(seg)
+
+    # Assert
+    assert res.segment is not None
+    assert res.segment.start == 1.0
+    assert res.segment.end == 1.0
