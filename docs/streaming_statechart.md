@@ -64,7 +64,7 @@ stateDiagram-v2
 
     %% ActiveContext状態 (文字数制限の判定)
     ActiveContext --> ActiveContext : [イベント] add_text() \n [条件] 合計文字数 <= max_length \n / アクション: 末尾に追加
-    ActiveContext --> ActiveContext : [イベント] add_text() \n [条件] 合計文字数 > max_length \n / アクション: 末尾に追加し、上限に収まるまで\n 最も古いテキストを破棄(Trim)
+    ActiveContext --> ActiveContext : [イベント] add_text() \n [条件] 合計文字数 > max_length \n / アクション: 末尾に追加し、上限に収まるまで\n 最も古い発話単位(セグメント)の履歴を破棄
 
     %% ActiveContext状態 (タイムアウト判定)
     ActiveContext --> ActiveContext : [イベント] check_timeout(silence_duration) \n [条件] silence_duration < timeout_seconds

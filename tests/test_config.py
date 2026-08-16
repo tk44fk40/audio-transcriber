@@ -361,3 +361,47 @@ def test_parse_config_dict_empty() -> None:
 
     # Assert
     assert cfg == AppConfig()
+
+
+def test_stream_config_defaults() -> None:
+    """AppConfig.stream が StreamContextConfig を正しく保持し、期待されるデフォルト値が読み込まれることを検証する。"""
+    # Arrange & Act
+    app_cfg = AppConfig()
+
+    # Assert
+    assert hasattr(app_cfg, "stream")
+    stream_cfg = app_cfg.stream
+
+    assert hasattr(stream_cfg, "context")
+    context_cfg = stream_cfg.context
+
+    # Check default values
+    assert context_cfg.context_max_length == 200
+    assert context_cfg.context_timeout_seconds == 3.0
+    assert stream_cfg.chunk_min_seconds == 1.0
+    assert stream_cfg.chunk_max_seconds == 30.0
+
+
+def test_load_config_stream_toml(tmp_path: Path) -> None:
+    """TOMLファイルの [stream] および [stream.context] セクションから設定が正しく読み込まれることを検証する。"""
+    # Arrange
+    toml_content = """
+    [stream]
+    CHUNK_MIN_SECONDS = 2.5
+    CHUNK_MAX_SECONDS = 60.0
+
+    [stream.context]
+    CONTEXT_MAX_LENGTH = 500
+    CONTEXT_TIMEOUT_SECONDS = 10.0
+    """
+    config_file = tmp_path / "stream_config.toml"
+    config_file.write_text(toml_content, encoding="utf-8")
+
+    # Act
+    cfg = load_config(config_file)
+
+    # Assert
+    assert cfg.stream.chunk_min_seconds == 2.5
+    assert cfg.stream.chunk_max_seconds == 60.0
+    assert cfg.stream.context.context_max_length == 500
+    assert cfg.stream.context.context_timeout_seconds == 10.0

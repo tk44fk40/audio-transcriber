@@ -155,6 +155,14 @@ class MasteringConfig:
 
 
 @dataclass
+class StreamContextConfig:
+    """ストリーミングの文脈管理設定。"""
+
+    context_max_length: int = 200
+    context_timeout_seconds: float = 3.0
+
+
+@dataclass
 class StreamConfig:
     """ストリーミング処理設定。"""
 
@@ -164,6 +172,10 @@ class StreamConfig:
     flush_timeout_ms: int = 1000
     word_gap_split_threshold: float = 1.0
     streaming_log: bool = False
+
+    chunk_min_seconds: float = 1.0
+    chunk_max_seconds: float = 30.0
+    context: StreamContextConfig = field(default_factory=StreamContextConfig)
 
 
 @dataclass
@@ -326,6 +338,15 @@ def parse_config_dict(data: dict[str, Any]) -> AppConfig:
 
     # Stream
     stream_d = norm.get("stream", {})
+    context_d = stream_d.get("context", {})
+
+    context = StreamContextConfig(
+        context_max_length=int(_get_val(context_d, "context_max_length", default=200)),
+        context_timeout_seconds=float(
+            _get_val(context_d, "context_timeout_seconds", default=3.0)
+        ),
+    )
+
     stream = StreamConfig(
         chunk_size_ms=int(_get_val(stream_d, "chunk_size_ms", default=100)),
         buffer_size_seconds=float(
@@ -337,6 +358,9 @@ def parse_config_dict(data: dict[str, Any]) -> AppConfig:
             _get_val(stream_d, "word_gap_split_threshold", default=1.0)
         ),
         streaming_log=bool(_get_val(stream_d, "streaming_log", default=False)),
+        chunk_min_seconds=float(_get_val(stream_d, "chunk_min_seconds", default=1.0)),
+        chunk_max_seconds=float(_get_val(stream_d, "chunk_max_seconds", default=30.0)),
+        context=context,
     )
 
     # Mastering

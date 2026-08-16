@@ -15,12 +15,15 @@
 ## 進行中フェーズ
 
 ### Phase 11: 真のストリーミング入力（True Streaming）アーキテクチャへの完全移行
-- [ ] 11.1 `config.toml`, `config.example.toml`, `config.py` へストリーミング用文脈制御パラメータを追加し、CLI引数対応と設定オブジェクト経由の注入（DI）を実装
-- [ ] 11.2 `TranscriberProvider` (STTインターフェース) に `transcribe_stream` メソッドを新設
-- [ ] 11.3 ストリーミングVADラッパー（チャンク長・無音時間監視による文脈リセット機能含む）の実装
-- [ ] 11.4 `faster-whisper` に自前チャンクと合算長さを考慮した `initial_prompt` を渡す逐次推論ロジックの実装
-- [ ] 11.5 パイプラインにおける「ファイル入力（マスタリング/Remux含む）」と「ストリーミング入力（スキップ）」の責務分離
-- [ ] 11.6 新規パラメータおよびストリーミングの仕様変更について `README.md` に反映
+- [x] **Step 1 & 2**: アーキテクチャ設計・状態遷移仕様合意・TDD単体テスト先行作成完了 (RED状態)
+- **Step 3**: 段階的実装 (GREEN化)
+  - [x] 11.1 (第1弾) Config周りの実装: `config.py` と TOML のパース処理追加し `test_config.py` を GREEN にする
+  - [ ] 11.2 (第2弾) ContextManager の実装: `managers.py` に文脈管理ロジックを実装し該当テストを GREEN にする
+  - [ ] 11.3 (第3弾) StreamingVadManager の実装: チャンク管理ロジックを実装し全テストを GREEN にする
+- [ ] 11.4 `TranscriberProvider` (STTインターフェース) に `transcribe_stream` メソッドを新設
+- [ ] 11.5 `faster-whisper` に自前チャンクと合算長さを考慮した `initial_prompt` を渡す逐次推論ロジックの実装
+- [ ] 11.6 パイプラインにおける「ファイル入力」と「ストリーミング入力」の責務分離
+- [ ] 11.7 新規パラメータおよびストリーミングの仕様変更について `README.md` に反映
 
 ### Phase 12: 耐障害性およびメトリクス通知の実装
 - [ ] 12.1 CUDA OOM（VRAM不足）発生時などの例外捕捉と、安全なCPUフォールバック等のリカバリ処理を実装

@@ -23,12 +23,14 @@
 ※ 設計詳細、リスク対策（文脈のチャンク切り詰め、長短チャンク保護、ファイル・ストリーミング処理の分離等）については `docs/detailed_design.md` の該当セクションを参照して実装すること。
 
 #### 【実装ステップ（TODO）】
-- [ ] 1. **ストリーミング設定の追加**: `config.py` の `AppConfig` に `StreamContextConfig` クラスを新設。`config.toml` の `[stream]` セクションから `context_max_length`, `context_timeout_seconds`, `chunk_min_seconds`, `chunk_max_seconds` 等をパースする処理を追加。
-- [ ] 2. **CLIからのDI実装**: `cli.py` の `typer.Option` に `--chunk-min-sec`, `--context-timeout` などを追加し、パース結果を `AppConfig` インスタンスへ格納。パイプライン構築時にこの設定オブジェクトをコンストラクタ注入（DI）する構造を整備。
-- [ ] 3. **STTインターフェースの分離**: `interfaces.py` 等の STT Provider 定義に `def transcribe_stream(self, audio_chunk: np.ndarray)` を新設。既存の `transcribe()` にはマスタリング等のファイル専用処理を残し、ストリーミング時は純粋な波形処理のみを行うよう責務を分離。
-- [ ] 4. **ストリーミングVADマネージャーの実装**: `stt.py` に `StreamingVadManager` クラスを新設。`feed_chunk` で渡された波形を内部のリングバッファに追記しつつ Silero VAD で推論を実行。`chunk_max_seconds` への到達、または `SPEECH_END` の検知をトリガーとして確定チャンク（`np.ndarray`）を切り出して `yield` するロジックを実装。
-- [ ] 5. **文脈管理と逐次推論**: Whisper の推論ループにおいて、過去セグメントのテキスト長を合算管理する `ContextManager` を導入。合算文字数が `context_max_length` を超えるか、無音時間が `context_timeout_seconds` を超えたタイミングで `initial_prompt` を空にクリアするロジックを実装し、テストケースを追加する。
-- [ ] 6. **ドキュメント反映**: 新設したパラメータやCLIの挙動（特に文脈リセットの仕様）について `README.md` に具体的な利用例を追記する。
+- [x] **Step 1 & 2**: アーキテクチャ設計 (クラス図・フローチャート・状態遷移図) の合意、およびTDDに基づく各単体テストの先行作成とRED（失敗）状態の確認完了。
+- **Step 3**: クォータ節約と確実な動作確認のための段階的実装 (GREEN化)
+  - [ ] 1. **(第1弾) ストリーミング設定の実装**: `config.py` に `StreamContextConfig` を追加し、TOMLからのパース処理を実装。`test_config.py` をGREENにする。
+  - [ ] 2. **(第2弾) 文脈管理 (ContextManager) の実装**: `streaming/managers.py` に文脈セグメントの破棄・タイムアウトリセットロジックを実装し、関連テストをGREENにする。
+  - [ ] 3. **(第3弾) VAD制御 (StreamingVadManager) の実装**: 同ファイルにリングバッファと発話チャンク切り出しロジックを実装し、全テストをGREENにする。
+- [ ] 4. **STTインターフェースの分離**: STT Provider に `transcribe_stream(audio_chunk)` を新設し、ストリーミング用の純粋な波形処理のみを行う責務に分離。
+- [ ] 5. **逐次推論とCLIのDI統合**: CLIから各種パラメータを受け取り `AppConfig` へ注入。Whisper推論ループに `ContextManager` と `StreamingVadManager` を組み込む。
+- [ ] 6. **ドキュメント反映**: 新設パラメータやストリーミング仕様変更について `README.md` に追記する。
 
 ### Phase 12: 耐障害性およびメトリクス通知の実装
 ※ 要件仕様書に基づく非機能要件の実現タスク。
