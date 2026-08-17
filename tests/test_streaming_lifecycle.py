@@ -20,7 +20,7 @@ class MockCallbacks(BasePipelineCallbacks):
     def __init__(self) -> None:
         self.vad_states: list[VadState] = []
         self.recognized_segments: list[RecognizedSegment] = []
-        self.errors: list[Exception] = []
+        self.errors: list[BaseException] = []
         self.speech_starts: list[float] = []
         self.speech_ends: list[float] = []
         self.segment_event = asyncio.Event()
@@ -35,7 +35,7 @@ class MockCallbacks(BasePipelineCallbacks):
         self.recognized_segments.append(segment)
         self.segment_event.set()
 
-    def on_error(self, error: Exception) -> None:
+    def on_error(self, error: BaseException) -> None:
         self.errors.append(error)
         self.error_event.set()
 

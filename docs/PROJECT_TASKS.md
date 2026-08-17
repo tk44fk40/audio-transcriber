@@ -9,7 +9,7 @@
 Phase 13 で策定した詳細設計（`detailed_design.md`）に基づき、新しいキューベース・リアルタイム進行アーキテクチャを実装します。
 
 #### 14.1 オーケストレーターとプロデューサー層の構築
-- [ ] 14.1.1 `pipeline_supervisor.py` の作成
+- [x] 14.1.1 `pipeline_supervisor.py` の作成
   - `PipelineSupervisor` クラスの実装（全体例外捕捉、CLI向けFacade）
   - CUDA OOM 等のランタイムエラーからの安全なリカバリ処理の実装
   - ステータスクリア機能 (`reset()` メソッド) によるライフサイクル管理の実装

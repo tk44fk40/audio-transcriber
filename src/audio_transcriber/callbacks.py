@@ -33,7 +33,7 @@ class PipelineCallbacks(Protocol):
         """音響イベントが検出された際に呼ばれます。"""
         ...
 
-    def on_error(self, error: Exception) -> None:
+    def on_error(self, error: BaseException) -> None:
         """パイプライン処理中にエラーが発生した際に呼ばれます。"""
         ...
 
@@ -68,6 +68,6 @@ class BasePipelineCallbacks(PipelineCallbacks):
         """音響イベントが検出された際に呼ばれます。"""
         pass
 
-    def on_error(self, error: Exception) -> None:
+    def on_error(self, error: BaseException) -> None:
         """パイプライン処理中にエラーが発生した際に呼ばれます。"""
         pass
