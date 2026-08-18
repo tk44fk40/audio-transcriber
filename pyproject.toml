@@ -17,12 +17,6 @@ dependencies = [
     "typer>=0.27.1",
 ]
 
-[tool.uv]
-override-dependencies = [
-    "torch>=2.2.0",
-    "torchaudio>=2.2.0",
-]
-
 [project.scripts]
 audio-transcriber = "audio_transcriber.cli:app"
 
@@ -37,6 +31,12 @@ dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.16.3",
+]
+
+[tool.uv]
+override-dependencies = [
+    "torch>=2.2.0",
+    "torchaudio>=2.2.0",
 ]
 
 [tool.ruff]
@@ -66,7 +66,7 @@ convention = "google"
 [tool.ruff.lint.per-file-ignores]
 # 全角文字対応 (日本語コメント・文字列・Docstring)
 "src/*" = ["RUF001", "RUF002", "RUF003"]
-# テストコードは Docstring ルール全般および全角文字警告を免除
+# テストコードは Docstring ルール全般および全角文字を免除
 "tests/*" = ["D", "RUF001", "RUF002", "RUF003"]
 "__init__.py" = ["D104"]
 
