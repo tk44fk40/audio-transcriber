@@ -70,4 +70,5 @@
 - **カバレッジナレッジの更新**: `docs/testing_and_coverage.md` の過去の未カバー箇所の辛口評価と対策履歴を随時追記更新する
 
 ## 10. 自律開発ワークフローへの委譲
-コード作成・修正における自律ワークフロー（Issue作成、シグネチャ優先提示、TDDテスト先行作成、セルフチェック、PR・スカッシュマージ等）の具体的な手順については、[autonomous-code-workflow](.agents/skills/autonomous-code-workflow/SKILL.md) スキルに完全準拠し、サブエージェントを活用して実施する。
+コード作成・修正における自律ワークフロー（Issue作成、シグネチャ優先提示、TDDテスト先行作成、セルフチェック、PR・スカッシュマージ等）の具体的な手順については、[autonomous-code-workflow](.agents/skills/autonomous-code-workflow/SKILL.md) スキルに完全準拠すること。
+コード作成・修正は、マネージャー、辛口レビュアー、コード編集担当の各サブエージェントを活用し、自律的に、ルール・スキルに従ってセルフチェックで問題が解消するまで繰り返し実施する。
