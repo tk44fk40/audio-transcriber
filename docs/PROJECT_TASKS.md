@@ -13,10 +13,39 @@ Phase 13 で策定した詳細設計（`detailed_design.md`）に基づき、新
   - `PipelineSupervisor` クラスの実装（全体例外捕捉、CLI向けFacade）
   - CUDA OOM 等のランタイムエラーからの安全なリカバリ処理の実装
   - ステータスクリア機能 (`reset()` メソッド) によるライフサイクル管理の実装
-- [ ] 14.1.2 `audio_producers.py` の作成
-  - `AudioChunkQueue` (非同期セーフキュー) の実装
-  - `FileAudioProducer` の実装（RNNoise前処理 → 一時ファイル読み込み）
-  - `StreamAudioProducer` の実装
+- [x] 14.1.2 `audio_producers.py` の作成と課題修正
+  - [x] `AudioChunkQueue` (非同期セーフキュー) の実装
+    - `asyncio.Queue(maxsize=maxsize)` による Backpressure（バックプレッシャー）制御
+    - キューが満杯時は投入元（Producers）を非ブロッキングでブロック（`await queue.put`）し、メモリ過剰消費（OOM）を防止
+  - [x] `StreamAudioProducer` の実装
+    - 外部から `feed_chunk(chunk, is_speech)` された音声バイト列をそのまま（パススルーで）キューへ供給
+    - 終了時に `stop()` を呼ぶことで、終了センチネル `None` を安全にキューへ投入
+  - [x] `FileAudioProducer` の実装
+    - ノイズ除去（RNNoise等）が有効な場合、`AudioDenoiser` を用いて一時クリーンファイル（`*_clean_temp.wav`）を非同期スレッド（`asyncio.to_thread`）で生成
+    - `asyncio.create_subprocess_exec` で非同期 FFmpeg プロセス（`pcm_s16le`, モノラル, 指定レート）を起動し、音声データを逐次デコード
+    - デコード出力を `chunk_size_ms`（デフォルト100ms ＝ 16kHz時3200バイト）単位に厳密にスライスしながら、ループでキューへ順次投入
+    - キャンセル・エラー・終了時に FFmpeg 子プロセスを確実に terminate/wait し、一時クリーンファイルを自動削除するクリーンアップ（`_cleanup()`）を実装
+  - [x] `tests/test_audio_producers.py` の作成とテスト検証
+    - [x] `test_audio_chunk_queue_basic`: 基本的なデータ投入、取得、qsize 挙動の検証
+    - [x] `test_audio_chunk_queue_backpressure`: キュー満杯時に put が適切にブロックされ、get されたら再開される Backpressure 制御の検証
+    - [x] `test_stream_audio_producer`: ストリーミングデータのパススルーと終了通知の検証
+    - [x] `test_file_audio_producer_without_denoise`: デノイズ無効時の FFmpeg 非同期プロセス経由のデコードと100ms境界での正確なチャンク分割（不完全チャンクの余り処理、終了センチネル None 投入を含む）の検証
+    - [x] `test_file_audio_producer_with_denoise`: デノイズ有効時に RNNoise 前処理（一時ファイル生成）を経てから、その一時ファイルを FFmpeg に渡して非同期にキューへ流す全体の連動テストの検証
+  - [x] **指摘問題点に対する対処（タスク14.1.2 の堅牢化課題）**
+    - [x] **課題A: キュー容量制限の動的化**
+      - `AudioChunkQueue` の `maxsize=100` ハードコーディングを廃止。1チャンクの時間長とサンプリングレートから算出されるバイト数、および総蓄積目標秒数に基づき動的に `maxsize` を受け取るように改修する
+    - [x] **課題B: 動画リマックス（音声トラック差し戻し）を見据えた一時ファイル（ノイズ除去済み音声）のライフサイクル再設計**
+      - **背景**: ファイル入力（動画）時、文字起こし完了後に「ノイズが除去された綺麗な音声トラック」を元の動画に書き戻すリマックス（合成）処理が必要になる。そのため、ノイズ除去済み一時ファイル（`*_clean_*.wav`）を途中で勝手に削除してはならない。
+      - **対策**:
+        1. `FileAudioProducer` が勝手に一時ファイルを消去せず、ファイルパスを `producer.denoised_audio_path` プロパティ等で外部（オーケストレーター）に公開できるように設計変更する。
+        2. 一時ファイルの最終クリーンアップ（削除）所有権をプロデューサー単体から、上位の `PipelineSupervisor` または統合パイプラインへ引き上げ、文字起こし ➔ リマックス（合成）のすべての行程が完全に終了した段階で、オーケストレーターが一括して消去するようにライフサイクルをリファクタリングする。
+        3. 最初のノイズ除去時に生成したファイルを最後まで使い回すことで、ディスク書き出し（I/O）を最小限（全行程で1回のみ）に抑え効率を最大化する。
+    - [x] **課題C: プロセス終了時のタイムアウトおよび強制停止（SIGKILL）の導入**
+      - `_cleanup()` 内で `self._ffmpeg_process.terminate()` 後に一定時間（例: 0.5秒） `wait()` をタイムアウト監視。タイムアウトした場合は `kill()` (SIGKILL) を呼び出し、プロセス詰まりによる非同期イベントループの永続フリーズを防止する
+    - [x] **課題D: FFmpeg のエラーログ伝播と異常終了検知**
+      - `stderr=DEVNULL` を廃止し、`asyncio.subprocess.PIPE` 等で stderr をバッファリング。FFmpeg が異常終了（exit code != 0）した際、サイレントに文字起こしを空にするのではなく、エラー詳細を含む `RuntimeError` を送出しコールバックへ適切にエラー通知する
+    - [x] **課題E: サンプリングレート仕様 of プロトコル整合性**
+      - 16000Hz (Whisper想定) 以外のモデル（24kHzや48kHz等）が将来混在した際にも矛盾が生じないよう、Producer が要求サンプリングレートを引数で受け取る、または設定から動的に解決するインターフェース設計へ見直す
 - [ ] 14.1.3 `file_remuxer.py` の作成
   - `FileRemuxer` クラスの実装（動画ファイル入力時の音声書き戻し処理）
 

@@ -1,4 +1,5 @@
-"""AudioStreamPipeline のライフサイクル・キュー管理・キャンセル・例外処理の単体テスト。"""
+"""AudioStreamPipeline のライフサイクル・
+キュー管理・キャンセル・例外処理の単体テスト。"""
 
 import asyncio
 from typing import Any
@@ -141,7 +142,8 @@ async def test_audio_stream_pipeline_feed_chunk_not_running(
 async def test_audio_stream_pipeline_reset_and_drain_queue(
     mock_transcriber: MagicMock,
 ) -> None:
-    """キューにアイテムが残っている状態で reset を呼び出し安全にクリアされることをテスト。"""
+    """キューにアイテムが残っている状態で reset を呼び出し、
+    安全にクリアされることをテスト。"""
     config = StreamConfig()
     callbacks = MockCallbacks()
     pipeline = AudioStreamPipeline(

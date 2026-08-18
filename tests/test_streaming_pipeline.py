@@ -1,4 +1,5 @@
-"""AudioStreamPipeline の音声処理・サニタイズ・タイミング・文脈プロンプトの単体テスト。"""
+"""AudioStreamPipeline の音声処理・サニタイズ・
+タイミング・文脈プロンプトの単体テスト。"""
 
 import asyncio
 from pathlib import Path
@@ -187,7 +188,8 @@ async def test_audio_stream_pipeline_context_and_dictionary(
 async def test_audio_stream_pipeline_sanitizer_drops_and_empty_text(
     mock_transcriber: MagicMock,
 ) -> None:
-    """サニタイザーによる無音ドロップおよびテキスト処理後の空文字スキップをテスト。"""
+    """サニタイザーによる無音ドロップおよび
+    テキスト処理後の空文字スキップをテスト。"""
     config = StreamConfig(sample_rate=16000, chunk_min_seconds=0.5)
     callbacks = MockCallbacks()
     pipeline = AudioStreamPipeline(
@@ -195,7 +197,8 @@ async def test_audio_stream_pipeline_sanitizer_drops_and_empty_text(
     )
     pipeline.processor.remove_punct = True
 
-    # 1件目は無音捏造（no_speech_prob=0.99）、2件目は記号のみで処理後空文字、3件目は正常
+    # 1件目は無音捏造（no_speech_prob=0.99）、
+    # 2件目は記号のみで処理後空文字、3件目は正常
     mock_transcriber.transcribe_stream.return_value = [
         {"start": 0.0, "end": 1.0, "text": "幻覚テキスト", "no_speech_prob": 0.99},
         {"start": 0.0, "end": 1.0, "text": "！？！？", "no_speech_prob": 0.0},
@@ -217,7 +220,8 @@ async def test_audio_stream_pipeline_sanitizer_drops_and_empty_text(
 async def test_audio_stream_pipeline_segment_timing_edge_cases(
     mock_transcriber: MagicMock,
 ) -> None:
-    """セグメント終了時刻が開始時刻以下の場合に 0.1s 加算補正されることを厳密にテスト。"""
+    """セグメント終了時刻が開始時刻以下の場合に
+    0.1s 加算補正されることを厳密にテスト。"""
     config = StreamConfig(sample_rate=16000, chunk_min_seconds=0.5)
     callbacks = MockCallbacks()
     pipeline = AudioStreamPipeline(

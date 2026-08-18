@@ -5,28 +5,28 @@ repos:
     hooks:
       - id: ruff-check
         name: ruff check
-        entry: uv run ruff check --fix .
+        entry: bash -c "export PATH=$PATH:/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin && uv run ruff check --fix ."
         language: system
         pass_filenames: false
         always_run: true
 
       - id: ruff-format
         name: ruff format
-        entry: uv run ruff format .
+        entry: bash -c "export PATH=$PATH:/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin && uv run ruff format ."
         language: system
         pass_filenames: false
         always_run: true
 
       - id: basedpyright
         name: basedpyright
-        entry: uv run basedpyright
+        entry: bash -c "export PATH=$PATH:/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin && uv run basedpyright"
         language: system
         pass_filenames: false
         always_run: true
 
       - id: pytest
         name: pytest
-        entry: uv run pytest --cov=audio_transcriber --cov-report=term-missing
+        entry: bash -c "export PATH=$PATH:/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin && uv run pytest --cov=audio_transcriber --cov-report=term-missing"
         language: system
         pass_filenames: false
         always_run: true

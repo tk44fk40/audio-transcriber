@@ -1,5 +1,5 @@
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -129,7 +129,8 @@ async def test_pipeline_supervisor_error_handling(
         await supervisor.start()
     assert len(callbacks.errors) == 1
     assert "Pipeline start error" in str(callbacks.errors[0])
-    mock_streaming_pipeline.reset.assert_awaited_once()  # エラー時にリセットが呼ばれることを確認
+    # エラー時にリセットが呼ばれることを確認
+    mock_streaming_pipeline.reset.assert_awaited_once()
     assert (
         not supervisor.is_running
     )  # エラー後、is_running が False になっていることを確認
@@ -150,7 +151,8 @@ async def test_pipeline_supervisor_error_handling(
         await supervisor.feed_chunk(b"dummy_data")
     assert len(callbacks.errors) == 1
     assert "Feed chunk error" in str(callbacks.errors[0])
-    mock_streaming_pipeline.reset.assert_awaited_once()  # エラー時にリセットが呼ばれることを確認
+    # エラー時にリセットが呼ばれることを確認
+    mock_streaming_pipeline.reset.assert_awaited_once()
     assert (
         not supervisor.is_running
     )  # エラー後、is_running が False になっていることを確認
@@ -200,18 +202,81 @@ async def test_pipeline_supervisor_on_metrics_passthrough(
 async def test_pipeline_supervisor_file_input_calls_pipeline(
     mock_streaming_pipeline: AsyncMock,
 ) -> None:
-    """run_file メソッドがパイプラインの feed_chunk を呼び出すことをテスト。"""
-    # このテストは、PipelineSupervisor が FileAudioProducer を内部で利用するように変更されたときに
-    # 適切に更新される必要があります。現時点では単純に feed_chunk を呼び出すことを想定します。
+    """run_file メソッドが FileAudioProducer から
+    デコードされたデータをパイプラインに投入することをテスト。"""
     supervisor = PipelineSupervisor(pipeline=mock_streaming_pipeline)
-    await supervisor.run_file("dummy_file.wav")
 
-    # run_file の内部実装がないため、ここでは feed_chunk が呼ばれることはない。
-    # run_file の実装が進んだら、このテストも更新する。
-    mock_streaming_pipeline.feed_chunk.assert_not_called()
-    # ただし、開始と停止は呼ばれるべき
-    mock_streaming_pipeline.start.assert_awaited_once()
-    mock_streaming_pipeline.stop.assert_awaited_once()
+    # FileAudioProducer の動作をモック化
+    mock_producer = MagicMock()
+    mock_producer.start = AsyncMock()
+    mock_producer.join = AsyncMock()
+    mock_producer.stop = AsyncMock()
+
+    # 2つのチャンクデータがキュー経由で流れる動作をシミュレート
+    async def mock_queue_get(self_queue):
+        # 1回目の get
+        yield (b"chunk1", True)
+        # 2回目の get
+        yield (b"chunk2", False)
+        # 終了センチネル
+        yield None
+
+    mock_get_gen = mock_queue_get(None)
+
+    async def mock_get():
+        return await anext(mock_get_gen)
+
+    with (
+        patch(
+            "audio_transcriber.pipeline_supervisor.FileAudioProducer",
+            return_value=mock_producer,
+        ),
+        patch(
+            "audio_transcriber.pipeline_supervisor.AudioChunkQueue"
+        ) as mock_queue_cls,
+    ):
+        # キューのモックを設定
+        mock_queue = MagicMock()
+        mock_queue.get = mock_get
+        mock_queue.task_done = MagicMock()
+        mock_queue_cls.return_value = mock_queue
+
+        await supervisor.run_file("dummy_file.wav")
+
+        # 開始、投入、停止がそれぞれ適切な回数呼ばれたことをアサート
+        mock_streaming_pipeline.start.assert_awaited_once()
+        assert mock_streaming_pipeline.feed_chunk.await_count == 2
+        mock_streaming_pipeline.feed_chunk.assert_any_await(b"chunk1", True)
+        mock_streaming_pipeline.feed_chunk.assert_any_await(b"chunk2", False)
+        mock_streaming_pipeline.stop.assert_awaited_once()
+        mock_producer.start.assert_awaited_once()
+        mock_producer.join.assert_awaited_once()
+        mock_producer.stop.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_pipeline_supervisor_race_condition(
+    mock_streaming_pipeline: AsyncMock,
+) -> None:
+    """start()を同時に重複して呼び出した際、
+    排他制御ロックによって1度しか開始が呼ばれないことを検証。"""
+    supervisor = PipelineSupervisor(pipeline=mock_streaming_pipeline)
+
+    # 1秒間ウェイトする開始をシミュレート
+    async def slow_start():
+        await asyncio.sleep(0.1)
+
+    mock_streaming_pipeline.start.side_effect = slow_start
+
+    # startを2つ並列で走らせる
+    task1 = asyncio.create_task(supervisor.start())
+    task2 = asyncio.create_task(supervisor.start())
+
+    await asyncio.gather(task1, task2)
+
+    # 排他ロックにより、重複した start_unlocked は早期リターンするため、
+    # 実際の start 待機は1回のみ呼ばれるはず
+    assert mock_streaming_pipeline.start.await_count == 1
 
 
 @pytest.mark.anyio
@@ -230,7 +295,8 @@ async def test_pipeline_supervisor_stream_input_lifecycle(
 async def test_pipeline_supervisor_stream_input_with_error(
     mock_streaming_pipeline: AsyncMock,
 ) -> None:
-    """run_stream メソッド内でエラーが発生した場合、on_error が呼ばれ、パイプラインが停止することを確認。"""
+    """run_stream メソッド内でエラーが発生した場合、
+    on_error が呼ばれ、パイプラインが停止することを確認。"""
     callbacks = MockCallbacks()
     supervisor = PipelineSupervisor(
         pipeline=mock_streaming_pipeline, callbacks=callbacks
@@ -247,3 +313,94 @@ async def test_pipeline_supervisor_stream_input_with_error(
     assert len(callbacks.errors) == 1
     assert "Stream processing error" in str(callbacks.errors[0])
     mock_streaming_pipeline.stop.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_pipeline_supervisor_run_file_stopped_midway(
+    mock_streaming_pipeline: AsyncMock,
+) -> None:
+    """run_file 中に pipeline が
+    停止された場合にループを適切に抜けることをテスト。"""
+    supervisor = PipelineSupervisor(pipeline=mock_streaming_pipeline)
+
+    # 1つ目のチャンクを処理した後に supervisor.stop() を呼び出して停止状態にする
+    async def mock_queue_get(self_queue):
+        yield (b"chunk1", True)
+        await supervisor.stop()  # 途中で停止
+        yield (b"chunk2", False)
+        yield None
+
+    mock_get_gen = mock_queue_get(None)
+
+    async def mock_get():
+        return await anext(mock_get_gen)
+
+    with (
+        patch(
+            "audio_transcriber.pipeline_supervisor.FileAudioProducer",
+        ) as mock_producer_cls,
+        patch(
+            "audio_transcriber.pipeline_supervisor.AudioChunkQueue"
+        ) as mock_queue_cls,
+    ):
+        mock_producer = MagicMock()
+        mock_producer.start = AsyncMock()
+        mock_producer.join = AsyncMock()
+        mock_producer.stop = AsyncMock()
+        mock_producer_cls.return_value = mock_producer
+
+        mock_queue = MagicMock()
+        mock_queue.get = mock_get
+        mock_queue.task_done = MagicMock()
+        mock_queue_cls.return_value = mock_queue
+
+        await supervisor.run_file("dummy_file.wav")
+
+        # stop() が呼ばれて以降は feed_chunk が呼ばれず、ループを抜ける
+        assert mock_streaming_pipeline.feed_chunk.await_count == 1
+        mock_streaming_pipeline.feed_chunk.assert_any_await(b"chunk1", True)
+
+
+@pytest.mark.anyio
+async def test_pipeline_supervisor_run_file_exception_recovery(
+    mock_streaming_pipeline: AsyncMock,
+) -> None:
+    """run_file 実行中に例外が発生した場合、
+    エラー通知と強制停止が適切に機能することをテスト。"""
+    callbacks = MockCallbacks()
+    supervisor = PipelineSupervisor(
+        pipeline=mock_streaming_pipeline, callbacks=callbacks
+    )
+
+    # 1回目の get で例外を投げる
+    async def mock_queue_get_error():
+        raise RuntimeError("Producer process failed")
+
+    with (
+        patch(
+            "audio_transcriber.pipeline_supervisor.FileAudioProducer",
+        ) as mock_producer_cls,
+        patch(
+            "audio_transcriber.pipeline_supervisor.AudioChunkQueue"
+        ) as mock_queue_cls,
+    ):
+        mock_producer = MagicMock()
+        mock_producer.start = AsyncMock()
+        mock_producer.join = AsyncMock()
+        mock_producer.stop = AsyncMock()
+        mock_producer_cls.return_value = mock_producer
+
+        mock_queue = MagicMock()
+        mock_queue.get = mock_queue_get_error
+        mock_queue_cls.return_value = mock_queue
+
+        with pytest.raises(RuntimeError, match="Producer process failed"):
+            await supervisor.run_file("dummy_file.wav")
+
+        # エラー通知と強制リセットが行われているか検証
+        await callbacks.error_event.wait()
+        assert len(callbacks.errors) == 1
+        assert "Producer process failed" in str(callbacks.errors[0])
+        mock_streaming_pipeline.reset.assert_awaited_once()
+        mock_streaming_pipeline.stop.assert_awaited_once()
+        assert not supervisor.is_running
