@@ -10,7 +10,8 @@ import asyncio
 from types import TracebackType
 from typing import Any
 
-from audio_transcriber.audio_producers import AudioChunkQueue, FileAudioProducer
+from audio_transcriber.audio_producers import FileAudioProducer
+from audio_transcriber.audio_queues import AudioChunkQueue
 from audio_transcriber.callbacks import BasePipelineCallbacks, PipelineCallbacks
 from audio_transcriber.config import AppConfig, StreamConfig
 from audio_transcriber.streaming.core import AudioStreamPipeline
@@ -208,8 +209,14 @@ class PipelineSupervisor:
             await self._start_unlocked()
 
         # デコード中の中継用バッファとして、Backpressure制御が
-        # 効くキューを最大100チャンクで初期化
-        queue = AudioChunkQueue(maxsize=100)
+        # 効くキューを動的なサイズで初期化
+        from audio_transcriber.audio_queues import calculate_max_queue_size
+
+        calculated_maxsize = calculate_max_queue_size(
+            buffer_seconds=self._app_config.stream.buffer_size_seconds,
+            chunk_size_ms=self._config.chunk_size_ms,
+        )
+        queue = AudioChunkQueue(maxsize=calculated_maxsize)
         producer = FileAudioProducer(
             file_path=file_path,
             queue=queue,
@@ -253,8 +260,26 @@ class PipelineSupervisor:
                 self._is_running = False
             raise
         finally:
-            # プロセスの終了や一時ファイルの削除を、いかなる場合も確実に実行
+            # 動画リマックス用に一時ファイルを残すため、一時ファイルの削除権限を
+            # プロデューサー単体から本オーケストレーター（PipelineSupervisor）へ引き上げ。
+            # プロセスの終了のみを確実に行います。
+            denoised_path = producer.denoised_audio_path
             await producer.stop()
+
+            # 本メソッドのライフサイクル完了、または異常終了時に
+            # オーケストレーター側が一括してノイズ除去一時ファイルを消去します。
+            if denoised_path and denoised_path.exists():
+                try:
+                    denoised_path.unlink(missing_ok=True)
+                except Exception as ex:
+                    import logging
+
+                    logging.getLogger(__name__).warning(
+                        "Failed to delete temporary file %s: %s",
+                        denoised_path,
+                        ex,
+                    )
+
             async with self._lock:
                 await self._stop_unlocked()
 

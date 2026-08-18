@@ -212,6 +212,11 @@ async def test_pipeline_supervisor_file_input_calls_pipeline(
     mock_producer.join = AsyncMock()
     mock_producer.stop = AsyncMock()
 
+    mock_temp_file = MagicMock()
+    mock_temp_file.exists.return_value = True
+    mock_temp_file.unlink = MagicMock()
+    mock_producer.denoised_audio_path = mock_temp_file
+
     # 2つのチャンクデータがキュー経由で流れる動作をシミュレート
     async def mock_queue_get(self_queue):
         # 1回目の get
@@ -252,6 +257,9 @@ async def test_pipeline_supervisor_file_input_calls_pipeline(
         mock_producer.start.assert_awaited_once()
         mock_producer.join.assert_awaited_once()
         mock_producer.stop.assert_awaited_once()
+
+        # 一時ファイルが PipelineSupervisor によって最終消去されることを検証
+        mock_temp_file.unlink.assert_called_once_with(missing_ok=True)
 
 
 @pytest.mark.anyio
@@ -347,6 +355,12 @@ async def test_pipeline_supervisor_run_file_stopped_midway(
         mock_producer.start = AsyncMock()
         mock_producer.join = AsyncMock()
         mock_producer.stop = AsyncMock()
+
+        mock_temp_file = MagicMock()
+        mock_temp_file.exists.return_value = True
+        mock_temp_file.unlink = MagicMock()
+        mock_producer.denoised_audio_path = mock_temp_file
+
         mock_producer_cls.return_value = mock_producer
 
         mock_queue = MagicMock()
@@ -388,6 +402,12 @@ async def test_pipeline_supervisor_run_file_exception_recovery(
         mock_producer.start = AsyncMock()
         mock_producer.join = AsyncMock()
         mock_producer.stop = AsyncMock()
+
+        mock_temp_file = MagicMock()
+        mock_temp_file.exists.return_value = True
+        mock_temp_file.unlink = MagicMock()
+        mock_producer.denoised_audio_path = mock_temp_file
+
         mock_producer_cls.return_value = mock_producer
 
         mock_queue = MagicMock()
@@ -404,3 +424,6 @@ async def test_pipeline_supervisor_run_file_exception_recovery(
         mock_streaming_pipeline.reset.assert_awaited_once()
         mock_streaming_pipeline.stop.assert_awaited_once()
         assert not supervisor.is_running
+
+        # エラー発生時でも、一時ファイルが PipelineSupervisor によって最終消去されることを検証
+        mock_temp_file.unlink.assert_called_once_with(missing_ok=True)

@@ -9,10 +9,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from audio_transcriber.audio_producers import (
-    AudioChunkQueue,
     FileAudioProducer,
     StreamAudioProducer,
 )
+from audio_transcriber.audio_queues import AudioChunkQueue
 from audio_transcriber.config import AppConfig
 
 
@@ -20,64 +20,6 @@ from audio_transcriber.config import AppConfig
 def anyio_backend() -> str:
     """AnyIO backend."""
     return "asyncio"
-
-
-@pytest.mark.anyio
-async def test_audio_chunk_queue_basic() -> None:
-    """AudioChunkQueueの基本的なデータ投入・取得とqsizeを検証。"""
-    queue = AudioChunkQueue(maxsize=5)
-    assert queue.qsize == 0
-
-    await queue.put((b"data1", True))
-    await queue.put((b"data2", False))
-    await queue.put(None)
-
-    assert queue.qsize == 3
-
-    item1 = await queue.get()
-    assert item1 == (b"data1", True)
-    queue.task_done()
-
-    item2 = await queue.get()
-    assert item2 == (b"data2", False)
-    queue.task_done()
-
-    item3 = await queue.get()
-    assert item3 is None
-    queue.task_done()
-
-    assert queue.qsize == 0
-
-
-@pytest.mark.anyio
-async def test_audio_chunk_queue_backpressure() -> None:
-    """AudioChunkQueueのBackpressure（満杯時のブロック）制御を検証。"""
-    queue = AudioChunkQueue(maxsize=2)
-    await queue.put((b"1", False))
-    await queue.put((b"2", False))
-
-    assert queue.qsize == 2
-
-    # 3つ目のputはブロックされるため、タイムアウト付きタスクで検証
-    put_task = asyncio.create_task(queue.put((b"3", False)))
-
-    # 少し待ってタスクが完了していない（ブロック中）ことを確認
-    await asyncio.sleep(0.05)
-    assert not put_task.done()
-
-    # 1つ取り出す
-    item = await queue.get()
-    assert item == (b"1", False)
-    queue.task_done()
-
-    # 取り出されたことでputが再開・完了することを確認
-    await asyncio.wait_for(put_task, timeout=0.5)
-    assert queue.qsize == 2
-
-    item2 = await queue.get()
-    assert item2 == (b"2", False)
-    item3 = await queue.get()
-    assert item3 == (b"3", False)
 
 
 @pytest.mark.anyio
@@ -220,18 +162,6 @@ async def test_file_audio_producer_with_denoise(tmp_path: Path) -> None:
         # センチネルNoneが投入されたことを確認
         assert queue.qsize == 1
         assert await queue.get() is None
-
-
-@pytest.mark.anyio
-async def test_audio_chunk_queue_dynamic_maxsize() -> None:
-    """AudioChunkQueueのmaxsize動的変更メソッドを検証。"""
-    queue = AudioChunkQueue(maxsize=10)
-    assert queue.maxsize == 10
-    queue.maxsize = 20
-    assert queue.maxsize == 20
-
-    with pytest.raises(ValueError):
-        queue.maxsize = -5
 
 
 @pytest.mark.anyio
@@ -392,43 +322,6 @@ async def test_file_audio_producer_duplicate_start(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
-async def test_audio_chunk_queue_dynamic_maxsize_wake_putters() -> None:
-    """maxsizeを増やしたときに、put待ちのタスクが正しく起こされるか検証。"""
-    queue = AudioChunkQueue(maxsize=1)
-    await queue.put((b"data1", False))
-
-    # 2つ目のputはブロックされる
-    put_task = asyncio.create_task(queue.put((b"data2", False)))
-    await asyncio.sleep(0.05)
-    assert not put_task.done()
-
-    # maxsizeを動的に増やす
-    queue.maxsize = 2
-
-    # これによりputタスクがウェイクアップして完了するはず
-    await asyncio.wait_for(put_task, timeout=0.5)
-    assert queue.qsize == 2
-
-
-def test_audio_producers_constants() -> None:
-    """定数値が正しく定義されていることを検証。"""
-    from audio_transcriber.audio_producers import (
-        BYTES_PER_SAMPLE_16BIT,
-        DEFAULT_MAX_QUEUE_SIZE,
-        FFMPEG_MONO_CHANNELS,
-        FFMPEG_TERMINATE_TIMEOUT_SEC,
-        MS_PER_SECOND,
-        SENTINEL_PUT_TIMEOUT_SEC,
-    )
-
-    assert DEFAULT_MAX_QUEUE_SIZE == 100
-    assert FFMPEG_TERMINATE_TIMEOUT_SEC == 0.5
-    assert BYTES_PER_SAMPLE_16BIT == 2
-    assert MS_PER_SECOND == 1000.0
-    assert FFMPEG_MONO_CHANNELS == "1"
-    assert SENTINEL_PUT_TIMEOUT_SEC == 1.0
-
-
 @pytest.mark.anyio
 async def test_file_audio_producer_join_cancelled(tmp_path: Path) -> None:
     """joinメソッドがCancelledErrorを適切に捕捉して正常終了するか検証。"""
@@ -480,9 +373,8 @@ async def test_file_audio_producer_cleanup_terminate_exception(tmp_path: Path) -
 
 
 @pytest.mark.anyio
-async def test_file_audio_producer_cleanup_temp_file_exception(tmp_path: Path) -> None:
-    """_cleanup実行時に一時ファイルの削除(unlink)が
-    例外を投げた場合、適切に処理されるか検証。"""
+async def test_file_audio_producer_temp_file_survival(tmp_path: Path) -> None:
+    """正常系: _cleanup呼び出し時も一時ファイルを保持することを検証。"""
     dummy_wav = tmp_path / "dummy.wav"
     dummy_wav.write_bytes(b"A" * 1000)
 
@@ -492,18 +384,18 @@ async def test_file_audio_producer_cleanup_temp_file_exception(tmp_path: Path) -
 
     producer = FileAudioProducer(dummy_wav, queue, app_config)
 
-    mock_temp_file = MagicMock()
-    mock_temp_file.unlink = MagicMock(side_effect=OSError("Permission denied"))
+    # モックの一時ファイルを格納
+    mock_temp_file = MagicMock(spec=Path)
     producer._temp_files.append(mock_temp_file)
 
-    with patch("audio_transcriber.audio_producers.logger") as mock_logger:
-        await producer._cleanup()
-        mock_logger.warning.assert_called_with(
-            "Error deleting temporary file %s: %s",
-            mock_temp_file,
-            mock_temp_file.unlink.side_effect,
-        )
-        assert len(producer._temp_files) == 0
+    assert producer.denoised_audio_path == mock_temp_file
+
+    await producer._cleanup()
+
+    # _cleanup後も一時ファイルは削除されず保持されていること
+    mock_temp_file.unlink.assert_not_called()
+    assert len(producer._temp_files) == 1
+    assert producer.denoised_audio_path == mock_temp_file
 
 
 @pytest.mark.anyio

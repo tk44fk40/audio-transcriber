@@ -12,6 +12,9 @@ import logging
 import uuid
 from pathlib import Path
 
+from audio_transcriber.audio_queues import (
+    AudioChunkQueue,
+)
 from audio_transcriber.config import AppConfig
 from audio_transcriber.denoise import create_denoiser
 
@@ -19,12 +22,6 @@ logger = logging.getLogger(__name__)
 
 
 # Constants for audio processing and async timeout control
-DEFAULT_MAX_QUEUE_SIZE: int = 100
-"""デフォルトの音声キュー最大容量。
-
-メモリ消費を抑えつつ十分なバッファリングを提供する防衛的な上限値です。
-"""
-
 FFMPEG_TERMINATE_TIMEOUT_SEC: float = 0.5
 """FFmpegプロセス終了時の最大待機秒数。
 
@@ -54,106 +51,6 @@ SENTINEL_PUT_TIMEOUT_SEC: float = 1.0
 
 キュー満杯によるプロデューサーのハングを防ぎます。
 """
-
-
-class AudioChunkQueue:
-    """非同期セーフな音声チャンクキュー。
-
-    Backpressure制御に対応し、満杯時は一時的にブロックします。
-    同一コルーチン間で安全に共有されます。
-
-    Attributes:
-        _queue (asyncio.Queue[tuple[bytes, bool] | None]):
-            (音声バイトデータ, 発話フラグ)のタプル。
-    """
-
-    def __init__(self, maxsize: int = DEFAULT_MAX_QUEUE_SIZE) -> None:
-        """AudioChunkQueue を初期化します。
-
-        Args:
-            maxsize (int): 最大許容サイズ（個数）。
-        """
-        self._queue: asyncio.Queue[tuple[bytes, bool] | None] = asyncio.Queue(
-            maxsize=maxsize
-        )
-        """共有される非同期セーフキュー。"""
-
-    async def put(self, item: tuple[bytes, bool] | None) -> None:
-        """データをキューに非同期投入します。
-
-        Args:
-            item (tuple[bytes, bool] | None): 音声バイト列と発話検出フラグのタプル。
-                またはストリーム終了を示す None。
-
-        Returns:
-            None
-
-        Raises:
-            asyncio.CancelledError: タスクがキャンセルされた場合。
-        """
-        await self._queue.put(item)
-
-    async def get(self) -> tuple[bytes, bool] | None:
-        """データをキューから非同期に取り出します。
-
-        Returns:
-            tuple[bytes, bool] | None: 音声バイト列と発話検出フラグ of タプル。
-                またはストリーム終了を示す None。
-
-        Raises:
-            asyncio.CancelledError: タスクがキャンセルされた場合。
-        """
-        return await self._queue.get()
-
-    def task_done(self) -> None:
-        """キューから取り出したタスクの完了を通知します。
-
-        Returns:
-            None
-
-        Raises:
-            ValueError: 未処理残数が 0 未満のときに呼び出された場合。
-        """
-        self._queue.task_done()
-
-    @property
-    def qsize(self) -> int:
-        """現在のキュー内の未処理アイテム数を返します。
-
-        Returns:
-            int: 未処理チャンク数。
-        """
-        return self._queue.qsize()
-
-    @property
-    def maxsize(self) -> int:
-        """最大音声チャンク容量を返します。
-
-        Returns:
-            int: 最大容量。
-        """
-        return self._queue._maxsize  # type: ignore[attr-defined]
-
-    @maxsize.setter
-    def maxsize(self, value: int) -> None:
-        """最大容量を動的に変更します。
-
-        もし新しい容量が広がり、これまで容量制限で put() 待機していた
-        プロデューサーがある場合は、それらを直ちに起床させます。
-        """
-        if value < 0:
-            raise ValueError("maxsize must be >= 0")
-        # asyncio.Queue の内部 maxsize 属性を動的に変更
-        self._queue._maxsize = value  # type: ignore[attr-defined]
-
-        # 待機中のputtersを起こす（Ruff 88桁制限を遵守するため改行で整理）
-        while (
-            self._queue._putters  # type: ignore[attr-defined]
-            and not self._queue.full()
-        ):
-            self._queue._wakeup_next(  # type: ignore[attr-defined]
-                self._queue._putters  # type: ignore[attr-defined]
-            )
 
 
 class StreamAudioProducer:
@@ -283,8 +180,22 @@ class FileAudioProducer:
             except asyncio.CancelledError:
                 pass
 
+    @property
+    def denoised_audio_path(self) -> Path | None:
+        """ノイズ除去済みの一時ファイルのパスを返します。
+
+        デノイズが無効、または未生成の場合は None を返します。
+        """
+        if not self._temp_files:
+            return None
+        return self._temp_files[0]
+
     async def _cleanup(self) -> None:
-        """FFmpegプロセスと一時ファイルのクリーンアップ。"""
+        """FFmpegプロセスと一時ファイルのクリーンアップ。
+
+        動画リマックスで使用するため、ノイズ除去済み一時ファイルは
+        ここでは自動削除せず、プロセスのクリーンアップのみを実施します。
+        """
         async with self._cleanup_lock:
             if self._ffmpeg_process:
                 try:
@@ -305,14 +216,6 @@ class FileAudioProducer:
                     logger.warning("Error terminating ffmpeg process: %s", e)
                 finally:
                     self._ffmpeg_process = None
-
-            # 登録された一時ファイルを順次削除
-            for temp_file in list(self._temp_files):
-                try:
-                    temp_file.unlink(missing_ok=True)
-                except Exception as e:
-                    logger.warning("Error deleting temporary file %s: %s", temp_file, e)
-            self._temp_files.clear()
 
     async def _run(self) -> None:
         """ファイルのデコードループ処理。"""
